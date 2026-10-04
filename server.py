@@ -1,7 +1,7 @@
 import os
+
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse, JSONResponse
-
 from mcp.server import MCPServer
 
 from youtube_auth import create_google_flow
@@ -71,7 +71,7 @@ async def oauth_login():
         prompt="consent"
     )
 
-    return RedirectResponse(authorization_url)
+    return RedirectResponse(url=authorization_url)
 
 
 # -----------------------------
@@ -96,7 +96,7 @@ async def oauth_callback(code: str, state: str = None):
 
 
 # -----------------------------
-# MCP ENDPOINT
+# MCP APP
 # -----------------------------
 
 mcp_app = mcp.streamable_http_app(
@@ -105,4 +105,6 @@ mcp_app = mcp.streamable_http_app(
     stateless_http=True
 )
 
-app.mount("/", mcp_app)
+
+# Mount MCP ONLY at /mcp
+app.mount("/mcp", mcp_app)
