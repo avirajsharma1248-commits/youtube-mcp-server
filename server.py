@@ -1,24 +1,108 @@
 import os
-from google_auth_oauthlib.flow import Flow
+from fastapi import FastAPI
+from fastapi.responses import RedirectResponse, JSONResponse
 
-SCOPES = [
-    "https://www.googleapis.com/auth/youtube.readonly"
-]
+from mcp.server import MCPServer
 
-def create_google_flow():
-    client_config = {
-        "web": {
-            "client_id": os.environ["GOOGLE_CLIENT_ID"],
-            "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
+from youtube_auth import create_google_flow
+from youtube_service import get_my_channel
+
+
+# -----------------------------
+# MCP SERVER
+# -----------------------------
+
+mcp = MCPServer(
+    "YouTube MCP Server",
+    instructions="MCP server for the user's authorized YouTube channel."
+)
+
+
+@mcp.tool()
+def get_server_status() -> str:
+    """Check whether the YouTube MCP server is online."""
+    return "YouTube MCP Server is online."
+
+
+@mcp.tool()
+def get_channel_info() -> dict:
+    """Get information about the authorized YouTube channel."""
+    try:
+        return get_my_channel()
+    except Exception as e:
+        return {
+            "error": str(e),
+            "message": "YouTube account is not authorized yet."
         }
+
+
+# -----------------------------
+# FASTAPI APP
+# -----------------------------
+
+app = FastAPI()
+
+
+@app.get("/")
+async def home():
+    return {
+        "status": "online",
+        "service": "YouTube MCP Server"
     }
 
-    flow = Flow.from_client_config(
-        client_config,
-        scopes=SCOPES,
-        redirect_uri=os.environ["YOUTUBE_REDIRECT_URI"]
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+
+# -----------------------------
+# GOOGLE OAUTH LOGIN
+# -----------------------------
+
+@app.get("/oauth/login")
+async def oauth_login():
+
+    flow = create_google_flow()
+
+    authorization_url, state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent"
     )
 
-    return flow
+    return RedirectResponse(authorization_url)
+
+
+# -----------------------------
+# GOOGLE OAUTH CALLBACK
+# -----------------------------
+
+@app.get("/oauth/callback")
+async def oauth_callback(code: str, state: str = None):
+
+    flow = create_google_flow()
+
+    flow.fetch_token(code=code)
+
+    credentials = flow.credentials
+
+    return JSONResponse({
+        "status": "success",
+        "message": "YouTube authorization successful.",
+        "has_access_token": credentials.token is not None,
+        "has_refresh_token": credentials.refresh_token is not None
+    })
+
+
+# -----------------------------
+# MCP ENDPOINT
+# -----------------------------
+
+mcp_app = mcp.streamable_http_app(
+    streamable_http_path="/mcp",
+    json_response=True,
+    stateless_http=True
+)
+
+app.mount("/", mcp_app)
