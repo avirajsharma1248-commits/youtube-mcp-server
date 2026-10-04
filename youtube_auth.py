@@ -1,11 +1,16 @@
 import os
+import secrets
+
 from google_auth_oauthlib.flow import Flow
+
 
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.readonly"
 ]
 
+
 def create_google_flow():
+
     client_config = {
         "web": {
             "client_id": os.environ["GOOGLE_CLIENT_ID"],
