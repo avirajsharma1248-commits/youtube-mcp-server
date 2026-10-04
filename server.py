@@ -5,7 +5,6 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse, JSONResponse
 
 from mcp.server import MCPServer
-from mcp.server.transport_security import TransportSecuritySettings
 
 from youtube_auth import create_google_flow
 
@@ -17,44 +16,51 @@ from youtube_service import (
 )
 
 
-# ============================================================
-# FASTAPI APP
-# ============================================================
+# =========================================================
+# FASTAPI APPLICATION
+# =========================================================
 
-app = FastAPI()
+app = FastAPI(
+    title="YouTube MCP Server"
+)
+
 
 # Temporary OAuth sessions
 oauth_sessions = {}
 
 
-# ============================================================
+# =========================================================
 # MCP SERVER
-# ============================================================
+# =========================================================
 
-mcp = MCPServer("YouTube MCP Server")
+mcp = MCPServer(
+    "youtube-mcp-server"
+)
 
 
-# ============================================================
-# TOOL 1: GET CHANNEL INFO
-# ============================================================
+# =========================================================
+# MCP TOOL: GET CHANNEL INFO
+# =========================================================
 
 @mcp.tool()
 def get_channel_info() -> dict:
     """
-    Get information and statistics about the authenticated YouTube channel.
+    Get authenticated YouTube channel information
+    and statistics.
     """
 
     return youtube_get_channel_info()
 
 
-# ============================================================
-# TOOL 2: GET MY VIDEOS
-# ============================================================
+# =========================================================
+# MCP TOOL: GET MY VIDEOS
+# =========================================================
 
 @mcp.tool()
 def get_my_videos(max_results: int = 10) -> dict:
     """
-    Get videos uploaded to the authenticated YouTube channel.
+    Get videos uploaded by the authenticated YouTube
+    channel.
     """
 
     return youtube_get_my_videos(
@@ -62,9 +68,9 @@ def get_my_videos(max_results: int = 10) -> dict:
     )
 
 
-# ============================================================
-# TOOL 3: SEARCH YOUTUBE
-# ============================================================
+# =========================================================
+# MCP TOOL: SEARCH YOUTUBE
+# =========================================================
 
 @mcp.tool()
 def search_youtube(
@@ -72,7 +78,7 @@ def search_youtube(
     max_results: int = 10
 ) -> dict:
     """
-    Search YouTube videos using a keyword or phrase.
+    Search YouTube videos using a keyword.
     """
 
     return youtube_search_youtube(
@@ -81,14 +87,16 @@ def search_youtube(
     )
 
 
-# ============================================================
-# TOOL 4: GET VIDEO STATS
-# ============================================================
+# =========================================================
+# MCP TOOL: GET VIDEO STATS
+# =========================================================
 
 @mcp.tool()
-def get_video_stats(video_id: str) -> dict:
+def get_video_stats(
+    video_id: str
+) -> dict:
     """
-    Get details and statistics for a YouTube video.
+    Get YouTube video information and statistics.
     """
 
     return youtube_get_video_stats(
@@ -96,9 +104,9 @@ def get_video_stats(video_id: str) -> dict:
     )
 
 
-# ============================================================
-# BASIC HOME ROUTE
-# ============================================================
+# =========================================================
+# HOME
+# =========================================================
 
 @app.get("/")
 def home():
@@ -116,9 +124,9 @@ def home():
     }
 
 
-# ============================================================
-# HEALTH CHECK
-# ============================================================
+# =========================================================
+# HEALTH
+# =========================================================
 
 @app.get("/health")
 def health():
@@ -128,22 +136,19 @@ def health():
     }
 
 
-# ============================================================
+# =========================================================
 # OAUTH LOGIN
-# ============================================================
+# =========================================================
 
 @app.get("/oauth/login")
 def oauth_login():
 
-    # Generate secure state
     state = secrets.token_urlsafe(32)
 
-    # Create Google OAuth flow
     flow = create_google_flow(
         state=state
     )
 
-    # Generate Google authorization URL
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
@@ -151,18 +156,16 @@ def oauth_login():
         state=state
     )
 
-    # Save flow temporarily
     oauth_sessions[state] = flow
 
-    # Redirect to Google
     return RedirectResponse(
-        url=authorization_url
+        authorization_url
     )
 
 
-# ============================================================
+# =========================================================
 # OAUTH CALLBACK
-# ============================================================
+# =========================================================
 
 @app.get("/oauth/callback")
 def oauth_callback(
@@ -170,13 +173,11 @@ def oauth_callback(
     state: str
 ):
 
-    # Get saved OAuth flow
     flow = oauth_sessions.pop(
         state,
         None
     )
 
-    # Session not found
     if flow is None:
 
         return JSONResponse(
@@ -189,27 +190,20 @@ def oauth_callback(
 
     try:
 
-        # Exchange authorization code
-        # for access and refresh tokens
         flow.fetch_token(
             code=code
         )
 
         credentials = flow.credentials
 
-        # Store tokens in current process.
-        #
-        # IMPORTANT:
-        # These are temporary and disappear
-        # when the Render instance restarts.
+        # Temporary storage for current process.
+        # Do NOT put tokens in GitHub.
         if credentials.token:
-
             os.environ[
                 "YOUTUBE_ACCESS_TOKEN"
             ] = credentials.token
 
         if credentials.refresh_token:
-
             os.environ[
                 "YOUTUBE_REFRESH_TOKEN"
             ] = credentials.refresh_token
@@ -238,42 +232,21 @@ def oauth_callback(
         )
 
 
-# ============================================================
-# MCP HOST SECURITY
-# ============================================================
+# =========================================================
+# MCP STREAMABLE HTTP
+# =========================================================
 
-security = TransportSecuritySettings(
-
-    allowed_hosts=[
-        "youtube-mcp-server-fiuu.onrender.com",
-        "youtube-mcp-server-fiuu.onrender.com:*"
-    ],
-
-    allowed_origins=[
-        "https://youtube-mcp-server-fiuu.onrender.com"
-    ]
-)
-
-
-# ============================================================
-# MCP STREAMABLE HTTP APP
-# ============================================================
-
-mcp_app = mcp.streamable_http_app(
-
+mcp_http_app = mcp.streamable_http_app(
     streamable_http_path="/mcp",
-
-    stateless_http=True,
-
-    transport_security=security
+    stateless_http=True
 )
 
 
-# ============================================================
-# MOUNT MCP
-# ============================================================
+# =========================================================
+# MOUNT MCP ONLY AT /mcp
+# =========================================================
 
 app.mount(
-    "/",
-    mcp_app
+    "/mcp",
+    mcp_http_app
 )
