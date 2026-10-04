@@ -1,6 +1,6 @@
 import secrets
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import RedirectResponse, JSONResponse
 
 from youtube_auth import create_google_flow
@@ -8,7 +8,7 @@ from youtube_auth import create_google_flow
 
 app = FastAPI()
 
-oauth_states = {}
+oauth_sessions = {}
 
 
 @app.get("/")
@@ -29,18 +29,21 @@ def health():
 @app.get("/oauth/login")
 def oauth_login():
 
-    flow = create_google_flow()
-
     state = secrets.token_urlsafe(32)
+
+    flow = create_google_flow(state=state)
 
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
-        state=state
+        state=state,
+        code_challenge_method="S256"
     )
 
-    oauth_states[state] = flow
+    # IMPORTANT:
+    # Flow's internal OAuth2Session contains the PKCE verifier.
+    oauth_sessions[state] = flow
 
     return RedirectResponse(authorization_url)
 
@@ -48,20 +51,22 @@ def oauth_login():
 @app.get("/oauth/callback")
 def oauth_callback(code: str, state: str):
 
-    flow = oauth_states.pop(state, None)
+    flow = oauth_sessions.pop(state, None)
 
     if flow is None:
         return JSONResponse(
             {
                 "status": "error",
-                "message": "OAuth session expired or invalid."
+                "message": "OAuth session not found. Start login again."
             },
             status_code=400
         )
 
     try:
 
-        flow.fetch_token(code=code)
+        flow.fetch_token(
+            code=code
+        )
 
         credentials = flow.credentials
 
