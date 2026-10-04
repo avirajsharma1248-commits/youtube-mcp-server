@@ -1,29 +1,18 @@
-from mcp.server.mcpserver import MCPServer
-from starlette.requests import Request
-from starlette.responses import JSONResponse
+from mcp.server import MCPServer
 
 mcp = MCPServer(
     "YouTube MCP Server",
-    instructions="Tools for accessing and managing the authorized YouTube channel."
+    instructions="MCP server for the user's authorized YouTube channel."
 )
 
 @mcp.tool()
 def get_server_status() -> str:
-    """Check whether the YouTube MCP server is running."""
+    """Check whether the YouTube MCP server is online."""
     return "YouTube MCP Server is online."
 
 @mcp.tool()
 def get_channel_info() -> str:
-    """Return information about the authorized YouTube channel."""
-    return "YouTube OAuth connection will be added in the next step."
+    """Get information about the user's authorized YouTube channel."""
+    return "YouTube authorization is not connected yet."
 
-@mcp.custom_route("/health", methods=["GET"])
-async def health(request: Request):
-    return JSONResponse({"status": "healthy"})
-
-app = mcp.streamable_http_app(
-    streamable_http_path="/mcp",
-    json_response=True,
-    stateless_http=True,
-    host="0.0.0.0"
-)
+app = mcp.streamable_http_app()
