@@ -5,8 +5,10 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse, JSONResponse
 
 from mcp.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
 from youtube_auth import create_google_flow
+
 from youtube_service import (
     get_channel_info as youtube_get_channel_info,
     get_my_videos as youtube_get_my_videos,
@@ -16,11 +18,12 @@ from youtube_service import (
 
 
 # ============================================================
-# FASTAPI
+# FASTAPI APP
 # ============================================================
 
 app = FastAPI()
 
+# Temporary OAuth sessions
 oauth_sessions = {}
 
 
@@ -28,13 +31,11 @@ oauth_sessions = {}
 # MCP SERVER
 # ============================================================
 
-mcp = MCPServer(
-    "YouTube MCP Server"
-)
+mcp = MCPServer("YouTube MCP Server")
 
 
 # ============================================================
-# MCP TOOL 1 — GET CHANNEL INFO
+# TOOL 1: GET CHANNEL INFO
 # ============================================================
 
 @mcp.tool()
@@ -47,7 +48,7 @@ def get_channel_info() -> dict:
 
 
 # ============================================================
-# MCP TOOL 2 — GET MY VIDEOS
+# TOOL 2: GET MY VIDEOS
 # ============================================================
 
 @mcp.tool()
@@ -62,7 +63,7 @@ def get_my_videos(max_results: int = 10) -> dict:
 
 
 # ============================================================
-# MCP TOOL 3 — SEARCH YOUTUBE
+# TOOL 3: SEARCH YOUTUBE
 # ============================================================
 
 @mcp.tool()
@@ -81,7 +82,7 @@ def search_youtube(
 
 
 # ============================================================
-# MCP TOOL 4 — GET VIDEO STATS
+# TOOL 4: GET VIDEO STATS
 # ============================================================
 
 @mcp.tool()
@@ -96,7 +97,7 @@ def get_video_stats(video_id: str) -> dict:
 
 
 # ============================================================
-# BASIC HTTP ROUTES
+# BASIC HOME ROUTE
 # ============================================================
 
 @app.get("/")
@@ -115,6 +116,10 @@ def home():
     }
 
 
+# ============================================================
+# HEALTH CHECK
+# ============================================================
+
 @app.get("/health")
 def health():
 
@@ -124,18 +129,21 @@ def health():
 
 
 # ============================================================
-# GOOGLE OAUTH LOGIN
+# OAUTH LOGIN
 # ============================================================
 
 @app.get("/oauth/login")
 def oauth_login():
 
+    # Generate secure state
     state = secrets.token_urlsafe(32)
 
+    # Create Google OAuth flow
     flow = create_google_flow(
         state=state
     )
 
+    # Generate Google authorization URL
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
@@ -143,15 +151,17 @@ def oauth_login():
         state=state
     )
 
+    # Save flow temporarily
     oauth_sessions[state] = flow
 
+    # Redirect to Google
     return RedirectResponse(
         url=authorization_url
     )
 
 
 # ============================================================
-# GOOGLE OAUTH CALLBACK
+# OAUTH CALLBACK
 # ============================================================
 
 @app.get("/oauth/callback")
@@ -160,11 +170,13 @@ def oauth_callback(
     state: str
 ):
 
+    # Get saved OAuth flow
     flow = oauth_sessions.pop(
         state,
         None
     )
 
+    # Session not found
     if flow is None:
 
         return JSONResponse(
@@ -177,20 +189,27 @@ def oauth_callback(
 
     try:
 
+        # Exchange authorization code
+        # for access and refresh tokens
         flow.fetch_token(
             code=code
         )
 
         credentials = flow.credentials
 
-        # Store tokens temporarily in process environment.
-        # IMPORTANT: these disappear after a Render restart.
+        # Store tokens in current process.
+        #
+        # IMPORTANT:
+        # These are temporary and disappear
+        # when the Render instance restarts.
         if credentials.token:
+
             os.environ[
                 "YOUTUBE_ACCESS_TOKEN"
             ] = credentials.token
 
         if credentials.refresh_token:
+
             os.environ[
                 "YOUTUBE_REFRESH_TOKEN"
             ] = credentials.refresh_token
@@ -220,17 +239,38 @@ def oauth_callback(
 
 
 # ============================================================
-# MCP STREAMABLE HTTP
+# MCP HOST SECURITY
 # ============================================================
 
-mcp_app = mcp.streamable_http_app(
-    streamable_http_path="/mcp",
-    stateless_http=True
+security = TransportSecuritySettings(
+
+    allowed_hosts=[
+        "youtube-mcp-server-fiuu.onrender.com",
+        "youtube-mcp-server-fiuu.onrender.com:*"
+    ],
+
+    allowed_origins=[
+        "https://youtube-mcp-server-fiuu.onrender.com"
+    ]
 )
 
 
 # ============================================================
-# MOUNT MCP INTO FASTAPI
+# MCP STREAMABLE HTTP APP
+# ============================================================
+
+mcp_app = mcp.streamable_http_app(
+
+    streamable_http_path="/mcp",
+
+    stateless_http=True,
+
+    transport_security=security
+)
+
+
+# ============================================================
+# MOUNT MCP
 # ============================================================
 
 app.mount(
