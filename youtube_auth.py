@@ -1,15 +1,12 @@
 import os
-import secrets
-
 from google_auth_oauthlib.flow import Flow
-
 
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.readonly"
 ]
 
 
-def create_google_flow():
+def create_google_flow(state=None):
 
     client_config = {
         "web": {
@@ -23,6 +20,7 @@ def create_google_flow():
     flow = Flow.from_client_config(
         client_config,
         scopes=SCOPES,
+        state=state,
         redirect_uri=os.environ["YOUTUBE_REDIRECT_URI"]
     )
 
