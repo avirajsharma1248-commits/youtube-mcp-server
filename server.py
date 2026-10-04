@@ -1,23 +1,29 @@
-import os
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from mcp.server.mcpserver import MCPServer
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
-app = FastAPI()
+mcp = MCPServer(
+    "YouTube MCP Server",
+    instructions="Tools for accessing and managing the authorized YouTube channel."
+)
 
-@app.get("/")
-def home():
-    return {
-        "status": "online",
-        "service": "YouTube MCP Server"
-    }
+@mcp.tool()
+def get_server_status() -> str:
+    """Check whether the YouTube MCP server is running."""
+    return "YouTube MCP Server is online."
 
-@app.get("/health")
-def health():
-    return {"status": "healthy"}
+@mcp.tool()
+def get_channel_info() -> str:
+    """Return information about the authorized YouTube channel."""
+    return "YouTube OAuth connection will be added in the next step."
 
-@app.get("/mcp")
-def mcp():
-    return JSONResponse({
-        "name": "youtube-mcp-server",
-        "status": "ready"
-    })
+@mcp.custom_route("/health", methods=["GET"])
+async def health(request: Request):
+    return JSONResponse({"status": "healthy"})
+
+app = mcp.streamable_http_app(
+    streamable_http_path="/mcp",
+    json_response=True,
+    stateless_http=True,
+    host="0.0.0.0"
+)
