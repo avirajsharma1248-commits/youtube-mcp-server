@@ -1,8 +1,10 @@
-from mcp.server import MCPServer
+from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
-mcp = MCPServer(
+mcp = FastMCP(
     "YouTube MCP Server",
-    instructions="MCP server for the user's authorized YouTube channel."
+    stateless_http=True,
+    json_response=True
 )
 
 @mcp.tool()
@@ -12,7 +14,14 @@ def get_server_status() -> str:
 
 @mcp.tool()
 def get_channel_info() -> str:
-    """Get information about the user's authorized YouTube channel."""
-    return "YouTube authorization is not connected yet."
+    """Get information about the connected YouTube channel."""
+    return "YouTube authorization will be connected next."
 
-app = mcp.streamable_http_app()
+app = mcp.streamable_http_app(
+    streamable_http_path="/mcp",
+    json_response=True,
+    stateless_http=True,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=False
+    )
+)
