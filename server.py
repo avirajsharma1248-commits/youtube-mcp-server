@@ -1,31 +1,3 @@
-import secrets
-
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse, JSONResponse
-
-from youtube_auth import create_google_flow
-
-
-app = FastAPI()
-
-oauth_sessions = {}
-
-
-@app.get("/")
-def home():
-    return {
-        "status": "online",
-        "service": "YouTube MCP Server"
-    }
-
-
-@app.get("/health")
-def health():
-    return {
-        "status": "healthy"
-    }
-
-
 @app.get("/oauth/login")
 def oauth_login():
 
@@ -37,12 +9,9 @@ def oauth_login():
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
-        state=state,
-        code_challenge_method="S256"
+        state=state
     )
 
-    # IMPORTANT:
-    # Flow's internal OAuth2Session contains the PKCE verifier.
     oauth_sessions[state] = flow
 
     return RedirectResponse(authorization_url)
@@ -57,15 +26,17 @@ def oauth_callback(code: str, state: str):
         return JSONResponse(
             {
                 "status": "error",
-                "message": "OAuth session not found. Start login again."
+                "message": "OAuth session expired. Please start login again."
             },
             status_code=400
         )
 
     try:
 
+        # Explicitly don't use PKCE
         flow.fetch_token(
-            code=code
+            code=code,
+            include_client_id=True
         )
 
         credentials = flow.credentials
@@ -73,8 +44,8 @@ def oauth_callback(code: str, state: str):
         return JSONResponse({
             "status": "success",
             "message": "YouTube authorization successful",
-            "access_token_received": credentials.token is not None,
-            "refresh_token_received": credentials.refresh_token is not None
+            "access_token_received": bool(credentials.token),
+            "refresh_token_received": bool(credentials.refresh_token)
         })
 
     except Exception as e:
