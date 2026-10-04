@@ -1,34 +1,24 @@
-from mcp.server import MCPServer
-from mcp.server.transport_security import TransportSecuritySettings
+import os
+from google_auth_oauthlib.flow import Flow
 
-mcp = MCPServer(
-    "YouTube MCP Server",
-    instructions="MCP server for the user's authorized YouTube channel."
-)
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.readonly"
+]
 
-@mcp.tool()
-def get_server_status() -> str:
-    """Check whether the MCP server is online."""
-    return "YouTube MCP Server is online."
+def create_google_flow():
+    client_config = {
+        "web": {
+            "client_id": os.environ["GOOGLE_CLIENT_ID"],
+            "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+    }
 
-@mcp.tool()
-def get_channel_info() -> str:
-    """Get information about the authorized YouTube channel."""
-    return "YouTube authorization will be connected next."
+    flow = Flow.from_client_config(
+        client_config,
+        scopes=SCOPES,
+        redirect_uri=os.environ["YOUTUBE_REDIRECT_URI"]
+    )
 
-security = TransportSecuritySettings(
-    allowed_hosts=[
-        "youtube-mcp-server-fiuu.onrender.com",
-        "youtube-mcp-server-fiuu.onrender.com:*"
-    ],
-    allowed_origins=[
-        "https://youtube-mcp-server-fiuu.onrender.com"
-    ]
-)
-
-app = mcp.streamable_http_app(
-    streamable_http_path="/mcp",
-    json_response=True,
-    stateless_http=True,
-    transport_security=security
-)
+    return flow
