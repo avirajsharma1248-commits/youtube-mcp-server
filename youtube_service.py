@@ -1,8 +1,8 @@
 import os
-from typing import Optional, List, Dict, Any
+from collections import Counter
 
-from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -12,13 +12,9 @@ from googleapiclient.errors import HttpError
 # ============================================================
 
 YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube"
-YOUTUBE_ANALYTICS_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly"
-
-YOUTUBE_API_SERVICE_NAME = "youtube"
-YOUTUBE_API_VERSION = "v3"
-
-YOUTUBE_ANALYTICS_SERVICE_NAME = "youtubeAnalytics"
-YOUTUBE_ANALYTICS_API_VERSION = "v2"
+YOUTUBE_ANALYTICS_SCOPE = (
+    "https://www.googleapis.com/auth/yt-analytics.readonly"
+)
 
 
 # ============================================================
@@ -27,15 +23,11 @@ YOUTUBE_ANALYTICS_API_VERSION = "v2"
 
 def get_credentials():
     """
-    Get YouTube OAuth credentials.
+    Get YouTube credentials.
 
-    Priority:
-    1. Existing access token + refresh token
-    2. Refresh token alone -> automatically generate access token
-    3. Access token alone
-
-    YOUTUBE_REFRESH_TOKEN is the important persistent credential
-    for Render deployments/restarts.
+    Render should permanently store YOUTUBE_REFRESH_TOKEN.
+    The access token can expire/disappear; the refresh token
+    is used to automatically obtain a new access token.
     """
 
     access_token = os.getenv("YOUTUBE_ACCESS_TOKEN")
@@ -46,16 +38,16 @@ def get_credentials():
 
     if not client_id:
         raise RuntimeError(
-            "GOOGLE_CLIENT_ID is missing from Render environment variables."
+            "GOOGLE_CLIENT_ID is missing from Render Environment."
         )
 
     if not client_secret:
         raise RuntimeError(
-            "GOOGLE_CLIENT_SECRET is missing from Render environment variables."
+            "GOOGLE_CLIENT_SECRET is missing from Render Environment."
         )
 
     # --------------------------------------------------------
-    # Preferred method: refresh token
+    # PREFERRED: refresh-token authentication
     # --------------------------------------------------------
 
     if refresh_token:
@@ -72,30 +64,35 @@ def get_credentials():
             ],
         )
 
-        # If access token is missing or expired,
-        # automatically obtain a new one.
+        # Access token missing or expired
         if not credentials.valid:
 
             try:
                 credentials.refresh(Request())
 
+                if not credentials.token:
+                    raise RuntimeError(
+                        "Google returned no access token."
+                    )
+
                 # Keep the new access token available
-                # during this Render process.
-                if credentials.token:
-                    os.environ["YOUTUBE_ACCESS_TOKEN"] = credentials.token
+                # for the current Render process.
+                os.environ["YOUTUBE_ACCESS_TOKEN"] = (
+                    credentials.token
+                )
 
             except Exception as e:
+
                 raise RuntimeError(
-                    "Unable to refresh YouTube access token. "
-                    "Your YOUTUBE_REFRESH_TOKEN may be invalid, revoked, "
-                    "or may not contain YouTube write permission. "
-                    f"Original error: {str(e)}"
+                    "YouTube OAuth refresh failed. "
+                    "Check YOUTUBE_REFRESH_TOKEN and Google OAuth permissions. "
+                    f"Details: {str(e)}"
                 )
 
         return credentials
 
     # --------------------------------------------------------
-    # Fallback: access token only
+    # FALLBACK: access token only
     # --------------------------------------------------------
 
     if access_token:
@@ -108,18 +105,15 @@ def get_credentials():
             ],
         )
 
-    # --------------------------------------------------------
-    # Nothing available
-    # --------------------------------------------------------
-
     raise RuntimeError(
         "YouTube access token unavailable. "
-        "Please set YOUTUBE_REFRESH_TOKEN or visit /oauth/login."
+        "YOUTUBE_REFRESH_TOKEN is missing. "
+        "Please visit /oauth/login."
     )
 
 
 # ============================================================
-# YOUTUBE SERVICE
+# YOUTUBE DATA API
 # ============================================================
 
 def get_youtube_service():
@@ -127,15 +121,15 @@ def get_youtube_service():
     credentials = get_credentials()
 
     return build(
-        YOUTUBE_API_SERVICE_NAME,
-        YOUTUBE_API_VERSION,
+        "youtube",
+        "v3",
         credentials=credentials,
         cache_discovery=False,
     )
 
 
 # ============================================================
-# YOUTUBE ANALYTICS SERVICE
+# YOUTUBE ANALYTICS API
 # ============================================================
 
 def get_analytics_service():
@@ -143,15 +137,85 @@ def get_analytics_service():
     credentials = get_credentials()
 
     return build(
-        YOUTUBE_ANALYTICS_SERVICE_NAME,
-        YOUTUBE_ANALYTICS_API_VERSION,
+        "youtubeAnalytics",
+        "v2",
         credentials=credentials,
         cache_discovery=False,
     )
 
 
 # ============================================================
-# GET CHANNEL INFO
+# 1. CHANNEL ANALYTICS
+# ============================================================
+
+def get_channel_analytics(
+    start_date,
+    end_date,
+    metrics=(
+        "views,"
+        "estimatedMinutesWatched,"
+        "averageViewDuration,"
+        "subscribersGained,"
+        "subscribersLost"
+    ),
+):
+
+    try:
+
+        youtube = get_youtube_service()
+
+        channel_response = youtube.channels().list(
+            part="id,snippet,statistics",
+            mine=True,
+        ).execute()
+
+        if not channel_response.get("items"):
+            return {
+                "status": "error",
+                "message": "No YouTube channel found.",
+            }
+
+        channel = channel_response["items"][0]
+        channel_id = channel["id"]
+
+        analytics = get_analytics_service()
+
+        response = analytics.reports().query(
+            ids=f"channel=={channel_id}",
+            startDate=start_date,
+            endDate=end_date,
+            metrics=metrics,
+            dimensions="day",
+            sort="day",
+        ).execute()
+
+        return {
+            "status": "success",
+            "channel_id": channel_id,
+            "channel_name": channel["snippet"]["title"],
+            "start_date": start_date,
+            "end_date": end_date,
+            "headers": response.get(
+                "columnHeaders",
+                []
+            ),
+            "rows": response.get(
+                "rows",
+                []
+            ),
+        }
+
+    except Exception as e:
+
+        return {
+            "status": "error",
+            "error_type": type(e).__name__,
+            "error": str(e),
+        }
+
+
+# ============================================================
+# 2. CHANNEL INFORMATION
 # ============================================================
 
 def get_channel_info():
@@ -162,46 +226,66 @@ def get_channel_info():
 
         response = youtube.channels().list(
             part="snippet,statistics,contentDetails",
-            mine=True
+            mine=True,
         ).execute()
 
         if not response.get("items"):
             return {
                 "status": "error",
-                "message": "No YouTube channel found for this account."
+                "message": "No YouTube channel found.",
             }
 
         channel = response["items"][0]
 
-        snippet = channel.get("snippet", {})
-        statistics = channel.get("statistics", {})
-        content_details = channel.get("contentDetails", {})
+        snippet = channel.get(
+            "snippet",
+            {}
+        )
+
+        statistics = channel.get(
+            "statistics",
+            {}
+        )
+
+        content_details = channel.get(
+            "contentDetails",
+            {}
+        )
 
         return {
             "status": "success",
-            "channel_id": channel.get("id"),
-            "title": snippet.get("title"),
-            "description": snippet.get("description"),
-            "custom_url": snippet.get("customUrl"),
-            "published_at": snippet.get("publishedAt"),
-            "country": snippet.get("country"),
-            "thumbnail": snippet.get("thumbnails", {}).get(
-                "high", {}
-            ).get("url"),
-            "subscribers": int(statistics.get("subscriberCount", 0)),
-            "views": int(statistics.get("viewCount", 0)),
-            "videos": int(statistics.get("videoCount", 0)),
-            "uploads_playlist": content_details.get(
-                "relatedPlaylists", {}
-            ).get("uploads"),
-        }
-
-    except HttpError as e:
-
-        return {
-            "status": "error",
-            "error_type": "YouTubeAPIError",
-            "error": str(e),
+            "channel_id": channel["id"],
+            "channel_name": snippet.get("title"),
+            "description": snippet.get(
+                "description",
+                ""
+            ),
+            "published_at": snippet.get(
+                "publishedAt"
+            ),
+            "subscriber_count": int(
+                statistics.get(
+                    "subscriberCount",
+                    0
+                )
+            ),
+            "view_count": int(
+                statistics.get(
+                    "viewCount",
+                    0
+                )
+            ),
+            "video_count": int(
+                statistics.get(
+                    "videoCount",
+                    0
+                )
+            ),
+            "uploads_playlist_id": (
+                content_details
+                .get("relatedPlaylists", {})
+                .get("uploads")
+            ),
         }
 
     except Exception as e:
@@ -214,10 +298,10 @@ def get_channel_info():
 
 
 # ============================================================
-# GET MY VIDEOS
+# 3. MY VIDEOS
 # ============================================================
 
-def get_my_videos(max_results: int = 20):
+def get_my_videos(max_results=10):
 
     try:
 
@@ -225,16 +309,16 @@ def get_my_videos(max_results: int = 20):
 
         channel_response = youtube.channels().list(
             part="contentDetails",
-            mine=True
+            mine=True,
         ).execute()
 
         if not channel_response.get("items"):
             return {
                 "status": "error",
-                "message": "No YouTube channel found."
+                "message": "No YouTube channel found.",
             }
 
-        uploads_playlist = (
+        uploads_playlist_id = (
             channel_response["items"][0]
             ["contentDetails"]
             ["relatedPlaylists"]
@@ -243,30 +327,112 @@ def get_my_videos(max_results: int = 20):
 
         playlist_response = youtube.playlistItems().list(
             part="snippet,contentDetails",
-            playlistId=uploads_playlist,
-            maxResults=min(max_results, 50)
+            playlistId=uploads_playlist_id,
+            maxResults=min(max_results, 50),
         ).execute()
 
         videos = []
+        video_ids = []
 
-        for item in playlist_response.get("items", []):
+        for item in playlist_response.get(
+            "items",
+            []
+        ):
 
-            snippet = item.get("snippet", {})
-            content = item.get("contentDetails", {})
+            video_id = (
+                item["contentDetails"]["videoId"]
+            )
+
+            video_ids.append(video_id)
+
+            snippet = item.get(
+                "snippet",
+                {}
+            )
 
             videos.append({
-                "video_id": content.get("videoId"),
-                "title": snippet.get("title"),
-                "description": snippet.get("description"),
-                "published_at": snippet.get("publishedAt"),
-                "thumbnail": snippet.get("thumbnails", {})
+                "video_id": video_id,
+                "title": snippet.get(
+                    "title",
+                    ""
+                ),
+                "description": snippet.get(
+                    "description",
+                    ""
+                ),
+                "published_at": snippet.get(
+                    "publishedAt"
+                ),
+                "thumbnail": (
+                    snippet
+                    .get("thumbnails", {})
                     .get("high", {})
-                    .get("url"),
+                    .get("url")
+                ),
                 "url": (
-                    f"https://www.youtube.com/watch?v="
-                    f"{content.get('videoId')}"
+                    "https://www.youtube.com/watch?v="
+                    + video_id
                 ),
             })
+
+        if video_ids:
+
+            stats_response = youtube.videos().list(
+                part="statistics,contentDetails",
+                id=",".join(video_ids),
+            ).execute()
+
+            stats = {
+                item["id"]: item
+                for item in stats_response.get(
+                    "items",
+                    []
+                )
+            }
+
+            for video in videos:
+
+                item = stats.get(
+                    video["video_id"],
+                    {}
+                )
+
+                statistics = item.get(
+                    "statistics",
+                    {}
+                )
+
+                content_details = item.get(
+                    "contentDetails",
+                    {}
+                )
+
+                video["views"] = int(
+                    statistics.get(
+                        "viewCount",
+                        0
+                    )
+                )
+
+                video["likes"] = int(
+                    statistics.get(
+                        "likeCount",
+                        0
+                    )
+                )
+
+                video["comments"] = int(
+                    statistics.get(
+                        "commentCount",
+                        0
+                    )
+                )
+
+                video["duration"] = (
+                    content_details.get(
+                        "duration"
+                    )
+                )
 
         return {
             "status": "success",
@@ -274,14 +440,6 @@ def get_my_videos(max_results: int = 20):
             "videos": videos,
         }
 
-    except HttpError as e:
-
-        return {
-            "status": "error",
-            "error_type": "YouTubeAPIError",
-            "error": str(e),
-        }
-
     except Exception as e:
 
         return {
@@ -292,77 +450,10 @@ def get_my_videos(max_results: int = 20):
 
 
 # ============================================================
-# SEARCH YOUTUBE
+# 4. VIDEO STATS
 # ============================================================
 
-def search_youtube(
-    query: str,
-    max_results: int = 10
-):
-
-    try:
-
-        youtube = get_youtube_service()
-
-        response = youtube.search().list(
-            part="snippet",
-            q=query,
-            type="video",
-            maxResults=min(max_results, 50)
-        ).execute()
-
-        results = []
-
-        for item in response.get("items", []):
-
-            snippet = item.get("snippet", {})
-            video_id = item.get("id", {}).get("videoId")
-
-            results.append({
-                "video_id": video_id,
-                "title": snippet.get("title"),
-                "description": snippet.get("description"),
-                "channel_id": snippet.get("channelId"),
-                "channel_title": snippet.get("channelTitle"),
-                "published_at": snippet.get("publishedAt"),
-                "thumbnail": snippet.get("thumbnails", {})
-                    .get("high", {})
-                    .get("url"),
-                "url": (
-                    f"https://www.youtube.com/watch?v={video_id}"
-                    if video_id else None
-                ),
-            })
-
-        return {
-            "status": "success",
-            "query": query,
-            "count": len(results),
-            "results": results,
-        }
-
-    except HttpError as e:
-
-        return {
-            "status": "error",
-            "error_type": "YouTubeAPIError",
-            "error": str(e),
-        }
-
-    except Exception as e:
-
-        return {
-            "status": "error",
-            "error_type": type(e).__name__,
-            "error": str(e),
-        }
-
-
-# ============================================================
-# GET VIDEO STATS
-# ============================================================
-
-def get_video_stats(video_id: str):
+def get_video_stats(video_id):
 
     try:
 
@@ -370,11 +461,10 @@ def get_video_stats(video_id: str):
 
         response = youtube.videos().list(
             part="snippet,statistics,contentDetails",
-            id=video_id
+            id=video_id,
         ).execute()
 
         if not response.get("items"):
-
             return {
                 "status": "error",
                 "message": "Video not found.",
@@ -383,36 +473,69 @@ def get_video_stats(video_id: str):
 
         video = response["items"][0]
 
-        snippet = video.get("snippet", {})
-        statistics = video.get("statistics", {})
-        content_details = video.get("contentDetails", {})
+        snippet = video.get(
+            "snippet",
+            {}
+        )
+
+        statistics = video.get(
+            "statistics",
+            {}
+        )
+
+        content_details = video.get(
+            "contentDetails",
+            {}
+        )
 
         return {
             "status": "success",
-            "video_id": video_id,
+            "video_id": video["id"],
             "title": snippet.get("title"),
-            "description": snippet.get("description"),
-            "channel_id": snippet.get("channelId"),
-            "channel_title": snippet.get("channelTitle"),
-            "published_at": snippet.get("publishedAt"),
-            "views": int(statistics.get("viewCount", 0)),
-            "likes": int(statistics.get("likeCount", 0)),
-            "comments": int(statistics.get("commentCount", 0)),
-            "duration": content_details.get("duration"),
-            "thumbnail": snippet.get("thumbnails", {})
-                .get("high", {})
-                .get("url"),
-            "url": (
-                f"https://www.youtube.com/watch?v={video_id}"
+            "description": snippet.get(
+                "description",
+                ""
             ),
-        }
-
-    except HttpError as e:
-
-        return {
-            "status": "error",
-            "error_type": "YouTubeAPIError",
-            "error": str(e),
+            "channel_id": snippet.get(
+                "channelId"
+            ),
+            "channel_title": snippet.get(
+                "channelTitle"
+            ),
+            "published_at": snippet.get(
+                "publishedAt"
+            ),
+            "views": int(
+                statistics.get(
+                    "viewCount",
+                    0
+                )
+            ),
+            "likes": int(
+                statistics.get(
+                    "likeCount",
+                    0
+                )
+            ),
+            "comments": int(
+                statistics.get(
+                    "commentCount",
+                    0
+                )
+            ),
+            "duration": content_details.get(
+                "duration"
+            ),
+            "thumbnail": (
+                snippet
+                .get("thumbnails", {})
+                .get("high", {})
+                .get("url")
+            ),
+            "url": (
+                "https://www.youtube.com/watch?v="
+                + video["id"]
+            ),
         }
 
     except Exception as e:
@@ -425,48 +548,36 @@ def get_video_stats(video_id: str):
 
 
 # ============================================================
-# GET VIDEO DETAILS
+# 5. VIDEO DETAILS
 # ============================================================
 
-def get_video_details(video_id: str):
+def get_video_details(video_id):
 
     try:
 
         youtube = get_youtube_service()
 
         response = youtube.videos().list(
-            part="snippet,statistics,contentDetails,status",
-            id=video_id
+            part=(
+                "snippet,"
+                "statistics,"
+                "contentDetails,"
+                "topicDetails,"
+                "status,"
+                "recordingDetails"
+            ),
+            id=video_id,
         ).execute()
 
         if not response.get("items"):
-
             return {
                 "status": "error",
                 "message": "Video not found.",
-                "video_id": video_id,
             }
-
-        video = response["items"][0]
 
         return {
             "status": "success",
-            "video_id": video_id,
-            "snippet": video.get("snippet", {}),
-            "statistics": video.get("statistics", {}),
-            "content_details": video.get("contentDetails", {}),
-            "status_details": video.get("status", {}),
-            "url": (
-                f"https://www.youtube.com/watch?v={video_id}"
-            ),
-        }
-
-    except HttpError as e:
-
-        return {
-            "status": "error",
-            "error_type": "YouTubeAPIError",
-            "error": str(e),
+            "video": response["items"][0],
         }
 
     except Exception as e:
@@ -479,164 +590,12 @@ def get_video_details(video_id: str):
 
 
 # ============================================================
-# UPDATE VIDEO TITLE
-# ============================================================
-
-def update_video_title(
-    video_id: str,
-    new_title: str
-):
-
-    try:
-
-        # ----------------------------------------------------
-        # Validate title
-        # ----------------------------------------------------
-
-        if not new_title or not new_title.strip():
-
-            return {
-                "status": "error",
-                "message": "New title cannot be empty."
-            }
-
-        new_title = new_title.strip()
-
-        if len(new_title) > 100:
-
-            return {
-                "status": "error",
-                "message": (
-                    "YouTube titles must be 100 characters "
-                    "or fewer."
-                ),
-                "length": len(new_title),
-            }
-
-        # ----------------------------------------------------
-        # Get YouTube service
-        # ----------------------------------------------------
-
-        youtube = get_youtube_service()
-
-        # ----------------------------------------------------
-        # Get existing video
-        # ----------------------------------------------------
-
-        existing_response = youtube.videos().list(
-            part="snippet",
-            id=video_id
-        ).execute()
-
-        if not existing_response.get("items"):
-
-            return {
-                "status": "error",
-                "message": "Video not found.",
-                "video_id": video_id,
-            }
-
-        existing_video = existing_response["items"][0]
-
-        existing_snippet = existing_video.get(
-            "snippet",
-            {}
-        )
-
-        old_title = existing_snippet.get(
-            "title",
-            ""
-        )
-
-        # ----------------------------------------------------
-        # Preserve existing snippet information
-        # ----------------------------------------------------
-
-        update_snippet = {
-            "title": new_title,
-            "description": existing_snippet.get(
-                "description",
-                ""
-            ),
-            "categoryId": existing_snippet.get(
-                "categoryId",
-                "22"
-            ),
-        }
-
-        # Preserve tags if they exist
-        if "tags" in existing_snippet:
-            update_snippet["tags"] = existing_snippet["tags"]
-
-        # Preserve default language if available
-        if existing_snippet.get("defaultLanguage"):
-            update_snippet["defaultLanguage"] = (
-                existing_snippet["defaultLanguage"]
-            )
-
-        # Preserve audio language if available
-        if existing_snippet.get("defaultAudioLanguage"):
-            update_snippet["defaultAudioLanguage"] = (
-                existing_snippet["defaultAudioLanguage"]
-            )
-
-        # ----------------------------------------------------
-        # Update YouTube video
-        # ----------------------------------------------------
-
-        response = youtube.videos().update(
-            part="snippet",
-            body={
-                "id": video_id,
-                "snippet": update_snippet,
-            }
-        ).execute()
-
-        updated_snippet = response.get(
-            "snippet",
-            {}
-        )
-
-        return {
-            "status": "success",
-            "message": "YouTube video title updated successfully.",
-            "video_id": video_id,
-            "old_title": old_title,
-            "new_title": updated_snippet.get(
-                "title",
-                new_title
-            ),
-            "url": (
-                f"https://www.youtube.com/watch?v={video_id}"
-            ),
-        }
-
-    except HttpError as e:
-
-        return {
-            "status": "error",
-            "error_type": "YouTubeAPIError",
-            "error": str(e),
-            "video_id": video_id,
-        }
-
-    except Exception as e:
-
-        return {
-            "status": "error",
-            "error_type": type(e).__name__,
-            "error": str(e),
-            "video_id": video_id,
-        }
-
-
-# ============================================================
-# KEYWORD RESEARCH
+# 6. YOUTUBE KEYWORD RESEARCH
 # ============================================================
 
 def youtube_keyword_research(
-    query: str,
-    max_results: int = 10
+    query,
+    max_results=20
 ):
 
     try:
@@ -647,51 +606,105 @@ def youtube_keyword_research(
             part="snippet",
             q=query,
             type="video",
-            maxResults=min(max_results, 50),
-            order="viewCount"
+            maxResults=min(
+                max_results,
+                50
+            ),
         ).execute()
 
+        video_ids = []
         results = []
 
-        for item in search_response.get("items", []):
+        for item in search_response.get(
+            "items",
+            []
+        ):
 
-            video_id = item.get("id", {}).get(
-                "videoId"
-            )
+            video_id = item["id"]["videoId"]
 
-            snippet = item.get(
-                "snippet",
-                {}
-            )
+            video_ids.append(video_id)
+
+            snippet = item["snippet"]
 
             results.append({
                 "video_id": video_id,
-                "title": snippet.get("title"),
+                "title": snippet.get(
+                    "title",
+                    ""
+                ),
                 "channel_title": snippet.get(
                     "channelTitle"
                 ),
                 "published_at": snippet.get(
                     "publishedAt"
                 ),
+                "description": snippet.get(
+                    "description",
+                    ""
+                ),
+                "thumbnail": (
+                    snippet
+                    .get("thumbnails", {})
+                    .get("high", {})
+                    .get("url")
+                ),
                 "url": (
-                    f"https://www.youtube.com/watch?v={video_id}"
-                    if video_id else None
+                    "https://www.youtube.com/watch?v="
+                    + video_id
                 ),
             })
+
+        if video_ids:
+
+            stats_response = youtube.videos().list(
+                part="statistics",
+                id=",".join(video_ids),
+            ).execute()
+
+            stats = {
+                item["id"]: item.get(
+                    "statistics",
+                    {}
+                )
+                for item in stats_response.get(
+                    "items",
+                    []
+                )
+            }
+
+            for result in results:
+
+                statistics = stats.get(
+                    result["video_id"],
+                    {}
+                )
+
+                result["views"] = int(
+                    statistics.get(
+                        "viewCount",
+                        0
+                    )
+                )
+
+                result["likes"] = int(
+                    statistics.get(
+                        "likeCount",
+                        0
+                    )
+                )
+
+                result["comments"] = int(
+                    statistics.get(
+                        "commentCount",
+                        0
+                    )
+                )
 
         return {
             "status": "success",
             "keyword": query,
-            "count": len(results),
+            "result_count": len(results),
             "results": results,
-        }
-
-    except HttpError as e:
-
-        return {
-            "status": "error",
-            "error_type": "YouTubeAPIError",
-            "error": str(e),
         }
 
     except Exception as e:
@@ -704,46 +717,84 @@ def youtube_keyword_research(
 
 
 # ============================================================
-# TRENDING VIDEOS
+# 7. SEARCH YOUTUBE
+# ============================================================
+
+def search_youtube(
+    query,
+    max_results=10
+):
+
+    return youtube_keyword_research(
+        query=query,
+        max_results=max_results,
+    )
+
+
+# ============================================================
+# 8. TRENDING VIDEOS
 # ============================================================
 
 def get_trending_videos(
-    region_code: str = "IN",
-    max_results: int = 10
+    region_code="IN",
+    category_id=None,
+    max_results=10
 ):
 
     try:
 
         youtube = get_youtube_service()
 
+        request = {
+            "part": (
+                "snippet,"
+                "statistics,"
+                "contentDetails"
+            ),
+            "chart": "mostPopular",
+            "regionCode": region_code,
+            "maxResults": min(
+                max_results,
+                50
+            ),
+        }
+
+        if category_id:
+            request["videoCategoryId"] = str(
+                category_id
+            )
+
         response = youtube.videos().list(
-            part="snippet,statistics,contentDetails",
-            chart="mostPopular",
-            regionCode=region_code,
-            maxResults=min(max_results, 50)
+            **request
         ).execute()
 
-        results = []
+        videos = []
 
-        for video in response.get("items", []):
+        for item in response.get(
+            "items",
+            []
+        ):
 
-            video_id = video.get("id")
-
-            snippet = video.get(
+            snippet = item.get(
                 "snippet",
                 {}
             )
 
-            statistics = video.get(
+            statistics = item.get(
                 "statistics",
                 {}
             )
 
-            results.append({
-                "video_id": video_id,
-                "title": snippet.get("title"),
+            videos.append({
+                "video_id": item["id"],
+                "title": snippet.get(
+                    "title"
+                ),
                 "channel_title": snippet.get(
                     "channelTitle"
+                ),
+                "published_at": snippet.get(
+                    "publishedAt"
                 ),
                 "views": int(
                     statistics.get(
@@ -763,35 +814,23 @@ def get_trending_videos(
                         0
                     )
                 ),
-                "published_at": snippet.get(
-                    "publishedAt"
+                "thumbnail": (
+                    snippet
+                    .get("thumbnails", {})
+                    .get("high", {})
+                    .get("url")
                 ),
-                "thumbnail": snippet.get(
-                    "thumbnails",
-                    {}
-                ).get(
-                    "high",
-                    {}
-                ).get("url"),
                 "url": (
-                    f"https://www.youtube.com/watch?v="
-                    f"{video_id}"
+                    "https://www.youtube.com/watch?v="
+                    + item["id"]
                 ),
             })
 
         return {
             "status": "success",
-            "region_code": region_code,
-            "count": len(results),
-            "videos": results,
-        }
-
-    except HttpError as e:
-
-        return {
-            "status": "error",
-            "error_type": "YouTubeAPIError",
-            "error": str(e),
+            "region": region_code,
+            "count": len(videos),
+            "videos": videos,
         }
 
     except Exception as e:
@@ -804,12 +843,12 @@ def get_trending_videos(
 
 
 # ============================================================
-# ANALYZE VIDEO COMMENTS
+# 9. ANALYZE VIDEO COMMENTS
 # ============================================================
 
 def analyze_video_comments(
-    video_id: str,
-    max_results: int = 50
+    video_id,
+    max_results=100
 ):
 
     try:
@@ -819,100 +858,62 @@ def analyze_video_comments(
         response = youtube.commentThreads().list(
             part="snippet",
             videoId=video_id,
-            maxResults=min(max_results, 100),
-            textFormat="plainText"
+            maxResults=min(
+                max_results,
+                100
+            ),
+            textFormat="plainText",
         ).execute()
 
         comments = []
+        words = []
 
-        for item in response.get("items", []):
+        for item in response.get(
+            "items",
+            []
+        ):
 
-            top_comment = (
-                item
-                .get("snippet", {})
-                .get("topLevelComment", {})
-                .get("snippet", {})
+            comment = (
+                item["snippet"]
+                ["topLevelComment"]
+                ["snippet"]
+            )
+
+            text = comment.get(
+                "textDisplay",
+                ""
             )
 
             comments.append({
-                "author": top_comment.get(
+                "author": comment.get(
                     "authorDisplayName"
                 ),
-                "text": top_comment.get(
-                    "textDisplay"
+                "text": text,
+                "likes": comment.get(
+                    "likeCount",
+                    0
                 ),
-                "likes": int(
-                    top_comment.get(
-                        "likeCount",
-                        0
-                    )
-                ),
-                "published_at": top_comment.get(
+                "published_at": comment.get(
                     "publishedAt"
-                ),
-                "updated_at": top_comment.get(
-                    "updatedAt"
                 ),
             })
 
-        positive_words = [
-            "love",
-            "good",
-            "great",
-            "nice",
-            "awesome",
-            "amazing",
-            "best",
-            "wow",
-            "funny",
-        ]
+            words.extend(
+                text.lower().split()
+            )
 
-        negative_words = [
-            "bad",
-            "worst",
-            "hate",
-            "boring",
-            "fake",
-            "poor",
-            "waste",
-        ]
-
-        positive_count = 0
-        negative_count = 0
-
-        for comment in comments:
-
-            text = (
-                comment.get("text") or ""
-            ).lower()
-
-            if any(
-                word in text
-                for word in positive_words
-            ):
-                positive_count += 1
-
-            if any(
-                word in text
-                for word in negative_words
-            ):
-                negative_count += 1
+        common_words = Counter(
+            words
+        ).most_common(20)
 
         return {
             "status": "success",
             "video_id": video_id,
-            "comment_count": len(comments),
-            "positive_signals": positive_count,
-            "negative_signals": negative_count,
+            "comment_count_analyzed": len(
+                comments
+            ),
             "comments": comments,
-        }
-
-    except HttpError as e:
-
-        return {
-            "status": "error",
-            "error_type": "YouTubeAPIError",
-            "error": str(e),
+            "common_words": common_words,
         }
 
     except Exception as e:
@@ -925,18 +926,18 @@ def analyze_video_comments(
 
 
 # ============================================================
-# COMPARE VIDEOS
+# 10. COMPARE VIDEOS
 # ============================================================
 
-def compare_videos(
-    video_ids: List[str]
-):
+def compare_videos(video_ids):
 
     try:
 
-        youtube = get_youtube_service()
+        if isinstance(
+            video_ids,
+            str
+        ):
 
-        if isinstance(video_ids, str):
             video_ids = [
                 x.strip()
                 for x in video_ids.split(",")
@@ -944,36 +945,47 @@ def compare_videos(
             ]
 
         if not video_ids:
-
             return {
                 "status": "error",
-                "message": "No video IDs provided."
+                "message": "No video IDs provided.",
             }
 
+        youtube = get_youtube_service()
+
         response = youtube.videos().list(
-            part="snippet,statistics,contentDetails",
-            id=",".join(video_ids)
+            part=(
+                "snippet,"
+                "statistics,"
+                "contentDetails"
+            ),
+            id=",".join(video_ids),
         ).execute()
 
-        results = []
+        videos = []
 
-        for video in response.get("items", []):
+        for item in response.get(
+            "items",
+            []
+        ):
 
-            video_id = video.get("id")
-
-            snippet = video.get(
+            snippet = item.get(
                 "snippet",
                 {}
             )
 
-            statistics = video.get(
+            statistics = item.get(
                 "statistics",
                 {}
             )
 
-            results.append({
-                "video_id": video_id,
-                "title": snippet.get("title"),
+            videos.append({
+                "video_id": item["id"],
+                "title": snippet.get(
+                    "title"
+                ),
+                "published_at": snippet.get(
+                    "publishedAt"
+                ),
                 "views": int(
                     statistics.get(
                         "viewCount",
@@ -992,27 +1004,26 @@ def compare_videos(
                         0
                     )
                 ),
-                "published_at": snippet.get(
-                    "publishedAt"
+                "duration": (
+                    item
+                    .get("contentDetails", {})
+                    .get("duration")
                 ),
                 "url": (
-                    f"https://www.youtube.com/watch?v="
-                    f"{video_id}"
+                    "https://www.youtube.com/watch?v="
+                    + item["id"]
                 ),
             })
 
+        videos.sort(
+            key=lambda x: x["views"],
+            reverse=True,
+        )
+
         return {
             "status": "success",
-            "count": len(results),
-            "videos": results,
-        }
-
-    except HttpError as e:
-
-        return {
-            "status": "error",
-            "error_type": "YouTubeAPIError",
-            "error": str(e),
+            "count": len(videos),
+            "videos": videos,
         }
 
     except Exception as e:
@@ -1025,5 +1036,146 @@ def compare_videos(
 
 
 # ============================================================
-# END OF FILE
+# 11. UPDATE VIDEO TITLE
 # ============================================================
+
+def update_video_title(
+    video_id,
+    new_title
+):
+
+    try:
+
+        if not new_title:
+            return {
+                "status": "error",
+                "message": "New title cannot be empty.",
+            }
+
+        new_title = new_title.strip()
+
+        if not new_title:
+            return {
+                "status": "error",
+                "message": "New title cannot be empty.",
+            }
+
+        if len(new_title) > 100:
+            return {
+                "status": "error",
+                "message": (
+                    "YouTube title must be 100 characters "
+                    "or fewer."
+                ),
+                "length": len(new_title),
+            }
+
+        youtube = get_youtube_service()
+
+        # Get the current snippet first.
+        response = youtube.videos().list(
+            part="snippet",
+            id=video_id,
+        ).execute()
+
+        if not response.get("items"):
+            return {
+                "status": "error",
+                "message": "Video not found.",
+                "video_id": video_id,
+            }
+
+        existing = response["items"][0]
+
+        old_snippet = existing.get(
+            "snippet",
+            {}
+        )
+
+        old_title = old_snippet.get(
+            "title",
+            ""
+        )
+
+        # YouTube requires categoryId when updating snippet.
+        category_id = old_snippet.get(
+            "categoryId"
+        )
+
+        if not category_id:
+            category_id = "22"
+
+        update_snippet = {
+            "title": new_title,
+            "description": old_snippet.get(
+                "description",
+                ""
+            ),
+            "categoryId": category_id,
+        }
+
+        # Preserve tags.
+        if "tags" in old_snippet:
+            update_snippet["tags"] = old_snippet["tags"]
+
+        # Preserve language settings.
+        if old_snippet.get(
+            "defaultLanguage"
+        ):
+            update_snippet["defaultLanguage"] = (
+                old_snippet["defaultLanguage"]
+            )
+
+        if old_snippet.get(
+            "defaultAudioLanguage"
+        ):
+            update_snippet["defaultAudioLanguage"] = (
+                old_snippet["defaultAudioLanguage"]
+            )
+
+        # Perform the actual update.
+        updated = youtube.videos().update(
+            part="snippet",
+            body={
+                "id": video_id,
+                "snippet": update_snippet,
+            },
+        ).execute()
+
+        updated_title = (
+            updated
+            .get("snippet", {})
+            .get("title", new_title)
+        )
+
+        return {
+            "status": "success",
+            "message": (
+                "YouTube video title updated successfully."
+            ),
+            "video_id": video_id,
+            "old_title": old_title,
+            "new_title": updated_title,
+            "url": (
+                "https://www.youtube.com/watch?v="
+                + video_id
+            ),
+        }
+
+    except HttpError as e:
+
+        return {
+            "status": "error",
+            "error_type": "YouTubeAPIError",
+            "error": str(e),
+            "video_id": video_id,
+        }
+
+    except Exception as e:
+
+        return {
+            "status": "error",
+            "error_type": type(e).__name__,
+            "error": str(e),
+            "video_id": video_id,
+        }
