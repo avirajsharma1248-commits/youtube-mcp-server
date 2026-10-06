@@ -28,81 +28,81 @@ mcp = MCPServer(
 
 
 # =========================================================
-# MCP TOOL 1: GET CHANNEL INFO
+# MCP TOOLS
 # =========================================================
 
 @mcp.tool()
 def get_channel_info() -> dict:
-    """
-    Get authenticated YouTube channel information
-    and statistics.
-    """
-
+    """Get authenticated YouTube channel information and statistics."""
     return youtube_get_channel_info()
 
 
-# =========================================================
-# MCP TOOL 2: GET MY VIDEOS
-# =========================================================
-
 @mcp.tool()
 def get_my_videos(max_results: int = 10) -> dict:
-    """
-    Get videos uploaded by the authenticated
-    YouTube channel.
-    """
-
+    """Get videos uploaded by the authenticated YouTube channel."""
     return youtube_get_my_videos(
         max_results=max_results
     )
 
-
-# =========================================================
-# MCP TOOL 3: SEARCH YOUTUBE
-# =========================================================
 
 @mcp.tool()
 def search_youtube(
     query: str,
     max_results: int = 10
 ) -> dict:
-    """
-    Search YouTube videos using a keyword.
-    """
-
+    """Search YouTube videos using a keyword."""
     return youtube_search_youtube(
         query=query,
         max_results=max_results
     )
 
 
-# =========================================================
-# MCP TOOL 4: GET VIDEO STATS
-# =========================================================
-
 @mcp.tool()
 def get_video_stats(
     video_id: str
 ) -> dict:
-    """
-    Get YouTube video information,
-    statistics and duration.
-    """
-
+    """Get YouTube video information and statistics."""
     return youtube_get_video_stats(
         video_id=video_id
     )
 
 
 # =========================================================
-# OAUTH SESSION STORAGE
+# OAUTH STORAGE
 # =========================================================
 
 oauth_sessions = {}
 
 
 # =========================================================
-# MCP LIFESPAN
+# TRANSPORT SECURITY
+# =========================================================
+
+transport_security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=True,
+    allowed_hosts=[
+        "youtube-mcp-server-fiuu.onrender.com",
+        "youtube-mcp-server-fiuu.onrender.com:*"
+    ],
+    allowed_origins=[
+        "https://youtube-mcp-server-fiuu.onrender.com"
+    ]
+)
+
+
+# =========================================================
+# MCP HTTP APP
+# =========================================================
+
+mcp_http_app = mcp.streamable_http_app(
+    streamable_http_path="/mcp",
+    stateless_http=True,
+    transport_security=transport_security
+)
+
+
+# =========================================================
+# FASTAPI APPLICATION
 # =========================================================
 
 @contextlib.asynccontextmanager
@@ -111,10 +111,6 @@ async def lifespan(app: FastAPI):
     async with mcp.session_manager.run():
         yield
 
-
-# =========================================================
-# FASTAPI APPLICATION
-# =========================================================
 
 app = FastAPI(
     title="YouTube MCP Server",
@@ -166,15 +162,12 @@ def health():
 @app.get("/oauth/login")
 def oauth_login():
 
-    # Generate secure OAuth state
     state = secrets.token_urlsafe(32)
 
-    # Create Google OAuth flow
     flow = create_google_flow(
         state=state
     )
 
-    # Generate Google authorization URL
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
@@ -182,11 +175,6 @@ def oauth_login():
         state=state
     )
 
-    # Store flow object.
-    #
-    # IMPORTANT:
-    # The same Flow object must be used in callback
-    # because it contains the PKCE code verifier.
     oauth_sessions[state] = flow
 
     return RedirectResponse(
@@ -204,7 +192,6 @@ def oauth_callback(
     state: str
 ):
 
-    # Retrieve the original OAuth flow
     flow = oauth_sessions.pop(
         state,
         None
@@ -225,23 +212,11 @@ def oauth_callback(
 
     try:
 
-        # Exchange authorization code
-        # for access and refresh tokens.
         flow.fetch_token(
             code=code
         )
 
         credentials = flow.credentials
-
-        # =================================================
-        # TEMPORARY TOKEN STORAGE
-        # =================================================
-        #
-        # Tokens are stored only in this running process.
-        # They are NOT stored in GitHub.
-        #
-        # Persistent token storage can be added later.
-        # =================================================
 
         if credentials.token:
 
@@ -280,61 +255,21 @@ def oauth_callback(
 
 
 # =========================================================
-# MCP TRANSPORT SECURITY
+# MOUNT MCP AT ROOT
 # =========================================================
 #
-# Render deploys this server behind:
+# IMPORTANT:
 #
-# youtube-mcp-server-fiuu.onrender.com
+# The MCP app itself contains /mcp.
+# Therefore we mount it at "/".
 #
-# MCP's DNS-rebinding protection otherwise accepts only
-# localhost hosts and returns:
-#
-# 421 Misdirected Request
-# Invalid Host header
-#
-# Therefore the real Render hostname is explicitly allowed.
-# =========================================================
-
-transport_security = TransportSecuritySettings(
-    enable_dns_rebinding_protection=True,
-
-    allowed_hosts=[
-        "youtube-mcp-server-fiuu.onrender.com",
-        "youtube-mcp-server-fiuu.onrender.com:*"
-    ],
-
-    allowed_origins=[
-        "https://youtube-mcp-server-fiuu.onrender.com"
-    ]
-)
-
-
-# =========================================================
-# MCP STREAMABLE HTTP
-# =========================================================
-#
-# Because this application is mounted at /mcp,
-# the internal MCP path is "/".
-#
-# Public endpoint:
+# Final endpoint:
 #
 # https://youtube-mcp-server-fiuu.onrender.com/mcp
 #
 # =========================================================
 
-mcp_http_app = mcp.streamable_http_app(
-    streamable_http_path="/",
-    stateless_http=True,
-    transport_security=transport_security
-)
-
-
-# =========================================================
-# MOUNT MCP
-# =========================================================
-
 app.mount(
-    "/mcp",
+    "/",
     mcp_http_app
 )
