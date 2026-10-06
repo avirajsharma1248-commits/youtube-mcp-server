@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse, JSONResponse
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
 from youtube_auth import create_google_flow
 
@@ -36,6 +37,7 @@ def get_channel_info() -> dict:
     Get authenticated YouTube channel information
     and statistics.
     """
+
     return youtube_get_channel_info()
 
 
@@ -49,6 +51,7 @@ def get_my_videos(max_results: int = 10) -> dict:
     Get videos uploaded by the authenticated
     YouTube channel.
     """
+
     return youtube_get_my_videos(
         max_results=max_results
     )
@@ -66,6 +69,7 @@ def search_youtube(
     """
     Search YouTube videos using a keyword.
     """
+
     return youtube_search_youtube(
         query=query,
         max_results=max_results
@@ -84,6 +88,7 @@ def get_video_stats(
     Get YouTube video information,
     statistics and duration.
     """
+
     return youtube_get_video_stats(
         video_id=video_id
     )
@@ -97,22 +102,13 @@ oauth_sessions = {}
 
 
 # =========================================================
-# FASTAPI LIFESPAN
-# =========================================================
-#
-# IMPORTANT:
-# When MCP is mounted inside FastAPI, the mounted
-# application's lifespan does not automatically run.
-#
-# Therefore the parent FastAPI application must start
-# the MCP session manager.
+# MCP LIFESPAN
 # =========================================================
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
 
     async with mcp.session_manager.run():
-
         yield
 
 
@@ -170,12 +166,15 @@ def health():
 @app.get("/oauth/login")
 def oauth_login():
 
+    # Generate secure OAuth state
     state = secrets.token_urlsafe(32)
 
+    # Create Google OAuth flow
     flow = create_google_flow(
         state=state
     )
 
+    # Generate Google authorization URL
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
@@ -183,9 +182,11 @@ def oauth_login():
         state=state
     )
 
-    # Save complete flow object.
-    # This is required so the PKCE code verifier
-    # survives until the callback.
+    # Store flow object.
+    #
+    # IMPORTANT:
+    # The same Flow object must be used in callback
+    # because it contains the PKCE code verifier.
     oauth_sessions[state] = flow
 
     return RedirectResponse(
@@ -203,6 +204,7 @@ def oauth_callback(
     state: str
 ):
 
+    # Retrieve the original OAuth flow
     flow = oauth_sessions.pop(
         state,
         None
@@ -224,22 +226,22 @@ def oauth_callback(
     try:
 
         # Exchange authorization code
-        # for access + refresh tokens.
+        # for access and refresh tokens.
         flow.fetch_token(
             code=code
         )
 
         credentials = flow.credentials
 
-        # -------------------------------------------------
+        # =================================================
         # TEMPORARY TOKEN STORAGE
-        # -------------------------------------------------
+        # =================================================
         #
-        # Tokens are kept in the current process only.
-        # They are NOT saved in GitHub.
+        # Tokens are stored only in this running process.
+        # They are NOT stored in GitHub.
         #
         # Persistent token storage can be added later.
-        # -------------------------------------------------
+        # =================================================
 
         if credentials.token:
 
@@ -278,14 +280,44 @@ def oauth_callback(
 
 
 # =========================================================
-# MCP STREAMABLE HTTP APPLICATION
+# MCP TRANSPORT SECURITY
 # =========================================================
 #
-# We mount this application at /mcp.
+# Render deploys this server behind:
 #
-# Therefore the internal MCP path is "/".
+# youtube-mcp-server-fiuu.onrender.com
 #
-# Final public endpoint:
+# MCP's DNS-rebinding protection otherwise accepts only
+# localhost hosts and returns:
+#
+# 421 Misdirected Request
+# Invalid Host header
+#
+# Therefore the real Render hostname is explicitly allowed.
+# =========================================================
+
+transport_security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=True,
+
+    allowed_hosts=[
+        "youtube-mcp-server-fiuu.onrender.com",
+        "youtube-mcp-server-fiuu.onrender.com:*"
+    ],
+
+    allowed_origins=[
+        "https://youtube-mcp-server-fiuu.onrender.com"
+    ]
+)
+
+
+# =========================================================
+# MCP STREAMABLE HTTP
+# =========================================================
+#
+# Because this application is mounted at /mcp,
+# the internal MCP path is "/".
+#
+# Public endpoint:
 #
 # https://youtube-mcp-server-fiuu.onrender.com/mcp
 #
@@ -293,7 +325,8 @@ def oauth_callback(
 
 mcp_http_app = mcp.streamable_http_app(
     streamable_http_path="/",
-    stateless_http=True
+    stateless_http=True,
+    transport_security=transport_security
 )
 
 
