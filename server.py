@@ -6,7 +6,9 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse, JSONResponse
 
 from mcp.server.mcpserver import MCPServer
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.transport_security import (
+    TransportSecuritySettings
+)
 
 from youtube_auth import create_google_flow
 
@@ -30,7 +32,7 @@ from youtube_service import (
 
 mcp = MCPServer(
     "youtube-mcp-server",
-    version="1.1.0"
+    version="1.2.0"
 )
 
 
@@ -41,8 +43,7 @@ mcp = MCPServer(
 @mcp.tool()
 def get_channel_info() -> dict:
     """
-    Get YouTube channel information including
-    subscribers, views and video count.
+    Get YouTube channel information.
     """
 
     return youtube_get_channel_info()
@@ -53,8 +54,7 @@ def get_my_videos(
     max_results: int = 10
 ) -> dict:
     """
-    Get the latest videos from the authenticated
-    YouTube channel.
+    Get latest videos from authenticated channel.
     """
 
     return youtube_get_my_videos(
@@ -82,8 +82,7 @@ def get_video_stats(
     video_id: str
 ) -> dict:
     """
-    Get views, likes, comments and other statistics
-    for a YouTube video.
+    Get YouTube video statistics.
     """
 
     return youtube_get_video_stats(
@@ -92,7 +91,7 @@ def get_video_stats(
 
 
 # =========================================================
-# ADDITIONAL MCP TOOLS
+# CHANNEL ANALYTICS
 # =========================================================
 
 @mcp.tool()
@@ -101,7 +100,7 @@ def get_channel_analytics(
     end_date: str
 ) -> dict:
     """
-    Get YouTube channel analytics for a date range.
+    Get YouTube channel analytics.
 
     Date format:
     YYYY-MM-DD
@@ -113,12 +112,16 @@ def get_channel_analytics(
     )
 
 
+# =========================================================
+# VIDEO DETAILS
+# =========================================================
+
 @mcp.tool()
 def get_video_details(
     video_id: str
 ) -> dict:
     """
-    Get complete details about a YouTube video.
+    Get complete video details.
     """
 
     return youtube_get_video_details(
@@ -126,13 +129,17 @@ def get_video_details(
     )
 
 
+# =========================================================
+# KEYWORD RESEARCH
+# =========================================================
+
 @mcp.tool()
 def youtube_keyword_research(
     query: str,
     max_results: int = 20
 ) -> dict:
     """
-    Research YouTube search results for a keyword.
+    Research YouTube results for a keyword.
     """
 
     return youtube_keyword_research_fn(
@@ -141,6 +148,10 @@ def youtube_keyword_research(
     )
 
 
+# =========================================================
+# TRENDING
+# =========================================================
+
 @mcp.tool()
 def get_trending_videos(
     region_code: str = "IN",
@@ -148,7 +159,7 @@ def get_trending_videos(
     max_results: int = 10
 ) -> dict:
     """
-    Get popular/trending YouTube videos for a region.
+    Get popular YouTube videos for a region.
     """
 
     return youtube_get_trending_videos(
@@ -158,13 +169,17 @@ def get_trending_videos(
     )
 
 
+# =========================================================
+# COMMENTS
+# =========================================================
+
 @mcp.tool()
 def analyze_video_comments(
     video_id: str,
     max_results: int = 100
 ) -> dict:
     """
-    Retrieve and analyze comments from a YouTube video.
+    Analyze comments from a YouTube video.
     """
 
     return youtube_analyze_video_comments(
@@ -172,6 +187,10 @@ def analyze_video_comments(
         max_results=max_results
     )
 
+
+# =========================================================
+# VIDEO COMPARISON
+# =========================================================
 
 @mcp.tool()
 def compare_videos(
@@ -197,15 +216,17 @@ oauth_sessions = {}
 
 
 # =========================================================
-# MCP TRANSPORT SECURITY
+# TRANSPORT SECURITY
 # =========================================================
 
 transport_security = TransportSecuritySettings(
     enable_dns_rebinding_protection=True,
+
     allowed_hosts=[
         "youtube-mcp-server-fiuu.onrender.com",
         "youtube-mcp-server-fiuu.onrender.com:*"
     ],
+
     allowed_origins=[
         "https://youtube-mcp-server-fiuu.onrender.com"
     ]
@@ -224,7 +245,7 @@ mcp_http_app = mcp.streamable_http_app(
 
 
 # =========================================================
-# APPLICATION LIFESPAN
+# LIFESPAN
 # =========================================================
 
 @contextlib.asynccontextmanager
@@ -240,7 +261,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="YouTube MCP Server",
-    version="1.1.0",
+    version="1.2.0",
     lifespan=lifespan
 )
 
@@ -254,11 +275,17 @@ def home():
 
     return {
         "status": "online",
+
         "service": "YouTube MCP Server",
-        "version": "1.1.0",
+
+        "version": "1.2.0",
+
         "mcp_endpoint": "/mcp",
+
         "oauth_login": "/oauth/login",
+
         "health": "/health",
+
         "tools": [
             "get_channel_info",
             "get_my_videos",
@@ -275,7 +302,7 @@ def home():
 
 
 # =========================================================
-# HEALTH CHECK
+# HEALTH
 # =========================================================
 
 @app.get("/health")
@@ -294,17 +321,21 @@ def health():
 @app.get("/oauth/login")
 def oauth_login():
 
-    state = secrets.token_urlsafe(32)
+    state = secrets.token_urlsafe(
+        32
+    )
 
     flow = create_google_flow(
         state=state
     )
 
-    authorization_url, _ = flow.authorization_url(
-        access_type="offline",
-        include_granted_scopes="true",
-        prompt="consent",
-        state=state
+    authorization_url, _ = (
+        flow.authorization_url(
+            access_type="offline",
+            include_granted_scopes="true",
+            prompt="consent",
+            state=state
+        )
     )
 
     oauth_sessions[state] = flow
@@ -350,9 +381,9 @@ def oauth_callback(
 
         credentials = flow.credentials
 
-        # -------------------------------------------------
-        # Save current access token in process memory
-        # -------------------------------------------------
+        # ---------------------------------------------
+        # Runtime access token
+        # ---------------------------------------------
 
         if credentials.token:
 
@@ -360,13 +391,9 @@ def oauth_callback(
                 "YOUTUBE_ACCESS_TOKEN"
             ] = credentials.token
 
-        # -------------------------------------------------
-        # Save refresh token in process memory
-        #
-        # IMPORTANT:
-        # For permanent Render storage, the refresh token
-        # must also be added manually to Render Environment.
-        # -------------------------------------------------
+        # ---------------------------------------------
+        # Runtime refresh token
+        # ---------------------------------------------
 
         if credentials.refresh_token:
 
@@ -377,18 +404,24 @@ def oauth_callback(
         return JSONResponse(
             {
                 "status": "success",
+
                 "message": (
                     "YouTube authorization successful"
                 ),
+
                 "access_token_received": bool(
                     credentials.token
                 ),
+
                 "refresh_token_received": bool(
                     credentials.refresh_token
                 ),
-                "next_step": (
-                    "Add YOUTUBE_REFRESH_TOKEN to "
-                    "Render Environment Variables "
+
+                "persistent_storage_required": True,
+
+                "message_for_user": (
+                    "Add YOUTUBE_REFRESH_TOKEN "
+                    "to Render Environment Variables "
                     "for persistent authorization."
                 )
             }
@@ -399,6 +432,7 @@ def oauth_callback(
         return JSONResponse(
             {
                 "status": "error",
+                "error_type": type(e).__name__,
                 "message": str(e)
             },
             status_code=500
