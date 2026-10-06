@@ -1,332 +1,597 @@
 import os
-import secrets
-import contextlib
 
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse, JSONResponse
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 
-from mcp.server.mcpserver import MCPServer
-from mcp.server.transport_security import TransportSecuritySettings
 
-from youtube_auth import create_google_flow
+YOUTUBE_API_SERVICE_NAME = "youtube"
+YOUTUBE_API_VERSION = "v3"
 
-from youtube_service import (
-    get_channel_info as youtube_get_channel_info,
-    get_my_videos as youtube_get_my_videos,
-    search_youtube as youtube_search_youtube,
-    get_video_stats as youtube_get_video_stats,
+YOUTUBE_SCOPE = (
+    "https://www.googleapis.com/auth/youtube.readonly"
 )
 
 
 # =========================================================
-# MCP SERVER
+# GET YOUTUBE CREDENTIALS
 # =========================================================
 
-mcp = MCPServer(
-    "youtube-mcp-server",
-    version="1.0.0"
-)
+def get_credentials():
 
-
-# =========================================================
-# MCP TOOL 1
-# =========================================================
-
-@mcp.tool()
-def get_channel_info() -> dict:
-    """
-    Get authenticated YouTube channel information
-    and statistics.
-    """
-
-    return youtube_get_channel_info()
-
-
-# =========================================================
-# MCP TOOL 2
-# =========================================================
-
-@mcp.tool()
-def get_my_videos(max_results: int = 10) -> dict:
-    """
-    Get videos uploaded by the authenticated
-    YouTube channel.
-    """
-
-    return youtube_get_my_videos(
-        max_results=max_results
+    access_token = os.getenv(
+        "YOUTUBE_ACCESS_TOKEN"
     )
 
-
-# =========================================================
-# MCP TOOL 3
-# =========================================================
-
-@mcp.tool()
-def search_youtube(
-    query: str,
-    max_results: int = 10
-) -> dict:
-    """
-    Search YouTube videos using a keyword.
-    """
-
-    return youtube_search_youtube(
-        query=query,
-        max_results=max_results
+    refresh_token = os.getenv(
+        "YOUTUBE_REFRESH_TOKEN"
     )
 
+    if not access_token:
+        raise RuntimeError(
+            "YouTube authorization required. "
+            "Please visit /oauth/login first."
+        )
 
-# =========================================================
-# MCP TOOL 4
-# =========================================================
-
-@mcp.tool()
-def get_video_stats(
-    video_id: str
-) -> dict:
-    """
-    Get YouTube video information,
-    statistics and duration.
-    """
-
-    return youtube_get_video_stats(
-        video_id=video_id
+    credentials = Credentials(
+        token=access_token,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=os.getenv(
+            "GOOGLE_CLIENT_ID"
+        ),
+        client_secret=os.getenv(
+            "GOOGLE_CLIENT_SECRET"
+        ),
+        scopes=[
+            YOUTUBE_SCOPE
+        ],
     )
 
-
-# =========================================================
-# OAUTH SESSION STORAGE
-# =========================================================
-
-oauth_sessions = {}
+    return credentials
 
 
 # =========================================================
-# TRANSPORT SECURITY
+# GET YOUTUBE SERVICE
 # =========================================================
 
-transport_security = TransportSecuritySettings(
-    enable_dns_rebinding_protection=True,
+def get_youtube_service():
 
-    allowed_hosts=[
-        "youtube-mcp-server-fiuu.onrender.com",
-        "youtube-mcp-server-fiuu.onrender.com:*"
-    ],
+    credentials = get_credentials()
 
-    allowed_origins=[
-        "https://youtube-mcp-server-fiuu.onrender.com"
-    ]
-)
+    youtube = build(
+        YOUTUBE_API_SERVICE_NAME,
+        YOUTUBE_API_VERSION,
+        credentials=credentials,
+        cache_discovery=False
+    )
 
-
-# =========================================================
-# MCP HTTP APP
-# =========================================================
-#
-# IMPORTANT:
-#
-# We mount this app at /mcp.
-#
-# Therefore the internal MCP path is "/".
-#
-# Public endpoint:
-#
-# https://youtube-mcp-server-fiuu.onrender.com/mcp
-#
-# =========================================================
-
-mcp_http_app = mcp.streamable_http_app(
-    streamable_http_path="/",
-    stateless_http=True,
-    transport_security=transport_security
-)
+    return youtube
 
 
 # =========================================================
-# FASTAPI LIFESPAN
+# CHANNEL INFORMATION
 # =========================================================
 
-@contextlib.asynccontextmanager
-async def lifespan(app: FastAPI):
+def get_channel_info():
 
-    async with mcp.session_manager.run():
-        yield
+    youtube = get_youtube_service()
 
+    response = youtube.channels().list(
+        part="snippet,statistics,contentDetails",
+        mine=True
+    ).execute()
 
-# =========================================================
-# FASTAPI APPLICATION
-# =========================================================
+    if not response.get("items"):
 
-app = FastAPI(
-    title="YouTube MCP Server",
-    version="1.0.0",
-    lifespan=lifespan
-)
+        return {
+            "status": "error",
+            "message": "No YouTube channel found."
+        }
 
+    channel = response["items"][0]
 
-# =========================================================
-# HOME
-# =========================================================
+    statistics = channel.get(
+        "statistics",
+        {}
+    )
 
-@app.get("/")
-def home():
+    snippet = channel.get(
+        "snippet",
+        {}
+    )
+
+    content_details = channel.get(
+        "contentDetails",
+        {}
+    )
 
     return {
-        "status": "online",
-        "service": "YouTube MCP Server",
-        "version": "1.0.0",
-        "mcp_endpoint": "/mcp",
-        "oauth_login": "/oauth/login",
-        "health": "/health",
-        "tools": [
-            "get_channel_info",
-            "get_my_videos",
-            "search_youtube",
-            "get_video_stats"
-        ]
+        "status": "success",
+
+        "channel_id": channel.get(
+            "id"
+        ),
+
+        "channel_name": snippet.get(
+            "title"
+        ),
+
+        "description": snippet.get(
+            "description",
+            ""
+        ),
+
+        "published_at": snippet.get(
+            "publishedAt"
+        ),
+
+        "country": snippet.get(
+            "country"
+        ),
+
+        "subscriber_count": int(
+            statistics.get(
+                "subscriberCount",
+                0
+            )
+        ),
+
+        "view_count": int(
+            statistics.get(
+                "viewCount",
+                0
+            )
+        ),
+
+        "video_count": int(
+            statistics.get(
+                "videoCount",
+                0
+            )
+        ),
+
+        "hidden_subscriber_count": statistics.get(
+            "hiddenSubscriberCount",
+            False
+        ),
+
+        "uploads_playlist_id": (
+            content_details
+            .get("relatedPlaylists", {})
+            .get("uploads")
+        )
     }
 
 
 # =========================================================
-# HEALTH
+# GET MY VIDEOS
 # =========================================================
 
-@app.get("/health")
-def health():
-
-    return {
-        "status": "healthy",
-        "service": "youtube-mcp-server"
-    }
-
-
-# =========================================================
-# OAUTH LOGIN
-# =========================================================
-
-@app.get("/oauth/login")
-def oauth_login():
-
-    state = secrets.token_urlsafe(32)
-
-    flow = create_google_flow(
-        state=state
-    )
-
-    authorization_url, _ = flow.authorization_url(
-        access_type="offline",
-        include_granted_scopes="true",
-        prompt="consent",
-        state=state
-    )
-
-    # Store the complete Flow object.
-    # This preserves the PKCE code verifier.
-    oauth_sessions[state] = flow
-
-    return RedirectResponse(
-        authorization_url
-    )
-
-
-# =========================================================
-# OAUTH CALLBACK
-# =========================================================
-
-@app.get("/oauth/callback")
-def oauth_callback(
-    code: str,
-    state: str
+def get_my_videos(
+    max_results=10
 ):
 
-    flow = oauth_sessions.pop(
-        state,
-        None
+    youtube = get_youtube_service()
+
+    # -----------------------------------------------------
+    # Get authenticated channel
+    # -----------------------------------------------------
+
+    channel_response = youtube.channels().list(
+        part="contentDetails",
+        mine=True
+    ).execute()
+
+    if not channel_response.get(
+        "items"
+    ):
+
+        return {
+            "status": "error",
+            "message": "No YouTube channel found."
+        }
+
+    uploads_playlist_id = (
+        channel_response["items"][0]
+        ["contentDetails"]
+        ["relatedPlaylists"]
+        ["uploads"]
     )
 
-    if flow is None:
+    # -----------------------------------------------------
+    # Get uploaded videos
+    # -----------------------------------------------------
 
-        return JSONResponse(
-            {
-                "status": "error",
-                "message": (
-                    "OAuth session expired. "
-                    "Please start login again."
-                )
-            },
-            status_code=400
+    playlist_response = (
+        youtube.playlistItems().list(
+            part="snippet,contentDetails",
+            playlistId=uploads_playlist_id,
+            maxResults=min(
+                max_results,
+                50
+            )
+        ).execute()
+    )
+
+    video_ids = []
+
+    basic_videos = []
+
+    for item in playlist_response.get(
+        "items",
+        []
+    ):
+
+        video_id = (
+            item["contentDetails"]
+            ["videoId"]
         )
 
-    try:
-
-        # Exchange authorization code
-        flow.fetch_token(
-            code=code
+        video_ids.append(
+            video_id
         )
 
-        credentials = flow.credentials
+        snippet = item.get(
+            "snippet",
+            {}
+        )
 
-        # Temporary token storage.
-        # Tokens are NOT written to GitHub.
-
-        if credentials.token:
-
-            os.environ[
-                "YOUTUBE_ACCESS_TOKEN"
-            ] = credentials.token
-
-        if credentials.refresh_token:
-
-            os.environ[
-                "YOUTUBE_REFRESH_TOKEN"
-            ] = credentials.refresh_token
-
-        return JSONResponse(
+        basic_videos.append(
             {
-                "status": "success",
-                "message": "YouTube authorization successful",
-                "access_token_received": bool(
-                    credentials.token
+                "video_id": video_id,
+
+                "title": snippet.get(
+                    "title",
+                    ""
                 ),
-                "refresh_token_received": bool(
-                    credentials.refresh_token
+
+                "description": snippet.get(
+                    "description",
+                    ""
+                ),
+
+                "published_at": snippet.get(
+                    "publishedAt"
+                ),
+
+                "channel_id": snippet.get(
+                    "channelId"
+                ),
+
+                "channel_title": snippet.get(
+                    "channelTitle"
+                ),
+
+                "thumbnail": (
+                    snippet
+                    .get("thumbnails", {})
+                    .get("high", {})
+                    .get("url")
+                ),
+
+                "url": (
+                    f"https://www.youtube.com/watch?v={video_id}"
                 )
             }
         )
 
-    except Exception as e:
+    if not video_ids:
 
-        return JSONResponse(
-            {
-                "status": "error",
-                "message": str(e)
-            },
-            status_code=500
+        return {
+            "status": "success",
+            "count": 0,
+            "videos": []
+        }
+
+    # -----------------------------------------------------
+    # Get video statistics
+    # -----------------------------------------------------
+
+    video_response = youtube.videos().list(
+        part="snippet,statistics,contentDetails",
+        id=",".join(video_ids)
+    ).execute()
+
+    stats_by_id = {}
+
+    for video in video_response.get(
+        "items",
+        []
+    ):
+
+        video_id = video["id"]
+
+        stats_by_id[
+            video_id
+        ] = {
+
+            "views": int(
+                video.get(
+                    "statistics",
+                    {}
+                ).get(
+                    "viewCount",
+                    0
+                )
+            ),
+
+            "likes": int(
+                video.get(
+                    "statistics",
+                    {}
+                ).get(
+                    "likeCount",
+                    0
+                )
+            ),
+
+            "comments": int(
+                video.get(
+                    "statistics",
+                    {}
+                ).get(
+                    "commentCount",
+                    0
+                )
+            ),
+
+            "duration": (
+                video.get(
+                    "contentDetails",
+                    {}
+                ).get(
+                    "duration"
+                )
+            ),
+
+            "definition": (
+                video.get(
+                    "contentDetails",
+                    {}
+                ).get(
+                    "definition"
+                )
+            ),
+
+            "caption": (
+                video.get(
+                    "contentDetails",
+                    {}
+                ).get(
+                    "caption"
+                )
+            )
+        }
+
+    # -----------------------------------------------------
+    # Combine information
+    # -----------------------------------------------------
+
+    videos = []
+
+    for video in basic_videos:
+
+        video_id = video[
+            "video_id"
+        ]
+
+        video_stats = stats_by_id.get(
+            video_id,
+            {}
         )
 
+        video.update(
+            video_stats
+        )
+
+        videos.append(
+            video
+        )
+
+    return {
+        "status": "success",
+        "count": len(videos),
+        "videos": videos
+    }
+
 
 # =========================================================
-# MOUNT MCP
-# =========================================================
-#
-# IMPORTANT:
-#
-# FastAPI routes above are defined BEFORE this mount.
-#
-# MCP is mounted at /mcp.
-#
-# streamable_http_path="/" means:
-#
-# /mcp
-#
-# NOT:
-#
-# /mcp/mcp
-#
+# SEARCH YOUTUBE
 # =========================================================
 
-app.mount(
-    "/mcp",
-    mcp_http_app
-)
+def search_youtube(
+    query,
+    max_results=10
+):
+
+    youtube = get_youtube_service()
+
+    response = youtube.search().list(
+        part="snippet",
+        q=query,
+        type="video",
+        maxResults=min(
+            max_results,
+            50
+        )
+    ).execute()
+
+    results = []
+
+    for item in response.get(
+        "items",
+        []
+    ):
+
+        video_id = (
+            item["id"]
+            ["videoId"]
+        )
+
+        snippet = item[
+            "snippet"
+        ]
+
+        results.append(
+            {
+                "video_id": video_id,
+
+                "title": snippet.get(
+                    "title",
+                    ""
+                ),
+
+                "description": snippet.get(
+                    "description",
+                    ""
+                ),
+
+                "channel_id": snippet.get(
+                    "channelId"
+                ),
+
+                "channel_title": snippet.get(
+                    "channelTitle"
+                ),
+
+                "published_at": snippet.get(
+                    "publishedAt"
+                ),
+
+                "thumbnail": (
+                    snippet
+                    .get("thumbnails", {})
+                    .get("high", {})
+                    .get("url")
+                ),
+
+                "url": (
+                    f"https://www.youtube.com/watch?v={video_id}"
+                )
+            }
+        )
+
+    return {
+        "status": "success",
+        "query": query,
+        "count": len(results),
+        "results": results
+    }
+
+
+# =========================================================
+# GET VIDEO STATISTICS
+# =========================================================
+
+def get_video_stats(
+    video_id
+):
+
+    youtube = get_youtube_service()
+
+    response = youtube.videos().list(
+        part="snippet,statistics,contentDetails",
+        id=video_id
+    ).execute()
+
+    if not response.get(
+        "items"
+    ):
+
+        return {
+            "status": "error",
+            "message": "Video not found."
+        }
+
+    video = response[
+        "items"
+    ][0]
+
+    snippet = video.get(
+        "snippet",
+        {}
+    )
+
+    statistics = video.get(
+        "statistics",
+        {}
+    )
+
+    content_details = video.get(
+        "contentDetails",
+        {}
+    )
+
+    return {
+        "status": "success",
+
+        "video_id": video[
+            "id"
+        ],
+
+        "title": snippet.get(
+            "title",
+            ""
+        ),
+
+        "description": snippet.get(
+            "description",
+            ""
+        ),
+
+        "channel_id": snippet.get(
+            "channelId"
+        ),
+
+        "channel_title": snippet.get(
+            "channelTitle"
+        ),
+
+        "published_at": snippet.get(
+            "publishedAt"
+        ),
+
+        "views": int(
+            statistics.get(
+                "viewCount",
+                0
+            )
+        ),
+
+        "likes": int(
+            statistics.get(
+                "likeCount",
+                0
+            )
+        ),
+
+        "comments": int(
+            statistics.get(
+                "commentCount",
+                0
+            )
+        ),
+
+        "duration": content_details.get(
+            "duration"
+        ),
+
+        "definition": content_details.get(
+            "definition"
+        ),
+
+        "caption": content_details.get(
+            "caption"
+        ),
+
+        "thumbnail": (
+            snippet
+            .get("thumbnails", {})
+            .get("high", {})
+            .get("url")
+        ),
+
+        "url": (
+            f"https://www.youtube.com/watch?v={video_id}"
+        )
+    }
