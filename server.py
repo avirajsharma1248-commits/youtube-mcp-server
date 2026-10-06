@@ -4,7 +4,11 @@ import contextlib
 from typing import Dict
 
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse
+from fastapi.responses import (
+    RedirectResponse,
+    JSONResponse,
+    HTMLResponse,
+)
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
@@ -26,15 +30,15 @@ from youtube_service import (
 
 
 # ============================================================
-# CONFIGURATION
+# CONFIG
 # ============================================================
 
 APP_NAME = "youtube-mcp-server"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 
 REDIRECT_URI = os.environ.get(
     "YOUTUBE_REDIRECT_URI",
-    "https://youtube-mcp-server-fiuu.onrender.com/oauth/callback"
+    "https://youtube-mcp-server-fiuu.onrender.com/oauth/callback",
 )
 
 
@@ -44,148 +48,180 @@ REDIRECT_URI = os.environ.get(
 
 mcp = MCPServer(
     APP_NAME,
-    version=APP_VERSION
+    version=APP_VERSION,
 )
 
 
 # ============================================================
-# TEMPORARY OAUTH FLOW STORAGE
+# OAUTH FLOW STORAGE
 #
-# This keeps the SAME OAuth flow between /oauth/login
-# and /oauth/callback so the PKCE code_verifier is preserved.
+# IMPORTANT:
+# We keep the original OAuth flow object so the PKCE
+# code_verifier survives from /oauth/login to /oauth/callback.
 # ============================================================
 
 oauth_flows: Dict[str, object] = {}
 
 
 # ============================================================
-# MCP TOOLS
+# HELPER
 # ============================================================
 
-@mcp.tool()
+def tool_error(tool_name: str, error: Exception):
+    return {
+        "status": "error",
+        "tool": tool_name,
+        "error_type": type(error).__name__,
+        "error_message": str(error),
+    }
+
+
+# ============================================================
+# TOOL 1
+# Exact MCP name: get_channel_info
+# ============================================================
+
+@mcp.tool(name="get_channel_info")
 def get_channel_info_tool():
     """
     Get information about the authenticated YouTube channel.
     """
+
     try:
         return get_channel_info()
 
     except Exception as e:
-        return {
-            "status": "error",
-            "tool": "get_channel_info",
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        }
+        return tool_error(
+            "get_channel_info",
+            e,
+        )
 
 
-@mcp.tool()
+# ============================================================
+# TOOL 2
+# Exact MCP name: get_my_videos
+# ============================================================
+
+@mcp.tool(name="get_my_videos")
 def get_my_videos_tool(
-    max_results: int = 20
+    max_results: int = 20,
 ):
     """
     Get videos from the authenticated YouTube channel.
 
     Args:
-        max_results: Number of videos to return.
+        max_results: Maximum number of videos.
     """
+
     try:
         return get_my_videos(
-            max_results=max_results
+            max_results=max_results,
         )
 
     except Exception as e:
-        return {
-            "status": "error",
-            "tool": "get_my_videos",
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        }
+        return tool_error(
+            "get_my_videos",
+            e,
+        )
 
 
-@mcp.tool()
+# ============================================================
+# TOOL 3
+# Exact MCP name: search_youtube
+# ============================================================
+
+@mcp.tool(name="search_youtube")
 def search_youtube_tool(
     query: str,
-    max_results: int = 10
+    max_results: int = 10,
 ):
     """
     Search YouTube videos.
 
     Args:
-        query: Search keyword or phrase.
-        max_results: Number of results.
+        query: YouTube search query.
+        max_results: Maximum number of results.
     """
+
     try:
         return search_youtube(
             query=query,
-            max_results=max_results
+            max_results=max_results,
         )
 
     except Exception as e:
-        return {
-            "status": "error",
-            "tool": "search_youtube",
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        }
+        return tool_error(
+            "search_youtube",
+            e,
+        )
 
 
-@mcp.tool()
+# ============================================================
+# TOOL 4
+# Exact MCP name: get_video_stats
+# ============================================================
+
+@mcp.tool(name="get_video_stats")
 def get_video_stats_tool(
-    video_id: str
+    video_id: str,
 ):
     """
-    Get YouTube video statistics.
+    Get views, likes and comments for a YouTube video.
 
     Args:
         video_id: YouTube video ID.
     """
+
     try:
         return get_video_stats(
-            video_id=video_id
+            video_id=video_id,
         )
 
     except Exception as e:
-        return {
-            "status": "error",
-            "tool": "get_video_stats",
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        }
+        return tool_error(
+            "get_video_stats",
+            e,
+        )
 
 
-@mcp.tool()
+# ============================================================
+# TOOL 5
+# Exact MCP name: get_channel_analytics
+# ============================================================
+
+@mcp.tool(name="get_channel_analytics")
 def get_channel_analytics_tool(
     start_date: str,
-    end_date: str
+    end_date: str,
 ):
     """
     Get YouTube channel analytics.
 
-    Dates must use YYYY-MM-DD format.
-
-    Args:
-        start_date: Analytics start date.
-        end_date: Analytics end date.
+    Dates:
+        YYYY-MM-DD
     """
+
     try:
         return get_channel_analytics(
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
         )
 
     except Exception as e:
-        return {
-            "status": "error",
-            "tool": "get_channel_analytics",
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        }
+        return tool_error(
+            "get_channel_analytics",
+            e,
+        )
 
 
-@mcp.tool()
+# ============================================================
+# TOOL 6
+# Exact MCP name: get_video_details
+# ============================================================
+
+@mcp.tool(name="get_video_details")
 def get_video_details_tool(
-    video_id: str
+    video_id: str,
 ):
     """
     Get detailed information about a YouTube video.
@@ -193,132 +229,152 @@ def get_video_details_tool(
     Args:
         video_id: YouTube video ID.
     """
+
     try:
         return get_video_details(
-            video_id=video_id
+            video_id=video_id,
         )
 
     except Exception as e:
-        return {
-            "status": "error",
-            "tool": "get_video_details",
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        }
+        return tool_error(
+            "get_video_details",
+            e,
+        )
 
 
-@mcp.tool()
+# ============================================================
+# TOOL 7
+# Exact MCP name: youtube_keyword_research
+# ============================================================
+
+@mcp.tool(name="youtube_keyword_research")
 def youtube_keyword_research_tool(
     keyword: str,
-    max_results: int = 20
+    max_results: int = 20,
 ):
     """
-    Research YouTube keywords and related videos.
+    Research YouTube keywords.
 
     Args:
         keyword: Keyword to research.
-        max_results: Number of results.
+        max_results: Maximum results.
     """
+
     try:
         return youtube_keyword_research(
             keyword=keyword,
-            max_results=max_results
+            max_results=max_results,
         )
 
     except Exception as e:
-        return {
-            "status": "error",
-            "tool": "youtube_keyword_research",
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        }
+        return tool_error(
+            "youtube_keyword_research",
+            e,
+        )
 
 
-@mcp.tool()
+# ============================================================
+# TOOL 8
+# Exact MCP name: get_trending_videos
+# ============================================================
+
+@mcp.tool(name="get_trending_videos")
 def get_trending_videos_tool(
     region_code: str = "IN",
-    max_results: int = 20
+    max_results: int = 20,
 ):
     """
-    Get currently trending YouTube videos.
+    Get trending YouTube videos.
 
     Args:
-        region_code: Two-letter country code.
-        max_results: Number of results.
+        region_code: Country code such as IN or US.
+        max_results: Maximum results.
     """
+
     try:
         return get_trending_videos(
             region_code=region_code,
-            max_results=max_results
+            max_results=max_results,
         )
 
     except Exception as e:
-        return {
-            "status": "error",
-            "tool": "get_trending_videos",
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        }
+        return tool_error(
+            "get_trending_videos",
+            e,
+        )
 
 
-@mcp.tool()
+# ============================================================
+# TOOL 9
+# Exact MCP name: analyze_video_comments
+# ============================================================
+
+@mcp.tool(name="analyze_video_comments")
 def analyze_video_comments_tool(
     video_id: str,
-    max_results: int = 100
+    max_results: int = 100,
 ):
     """
-    Analyze comments on a YouTube video.
+    Analyze comments of a YouTube video.
 
     Args:
         video_id: YouTube video ID.
         max_results: Maximum comments.
     """
+
     try:
         return analyze_video_comments(
             video_id=video_id,
-            max_results=max_results
+            max_results=max_results,
         )
 
     except Exception as e:
-        return {
-            "status": "error",
-            "tool": "analyze_video_comments",
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        }
+        return tool_error(
+            "analyze_video_comments",
+            e,
+        )
 
 
-@mcp.tool()
+# ============================================================
+# TOOL 10
+# Exact MCP name: compare_videos
+# ============================================================
+
+@mcp.tool(name="compare_videos")
 def compare_videos_tool(
-    video_ids: str
+    video_ids: str,
 ):
     """
     Compare multiple YouTube videos.
 
-    Provide video IDs separated by commas.
-
     Example:
-    video1,video2,video3
+        video1,video2,video3
     """
+
     try:
 
         ids = [
-            item.strip()
-            for item in video_ids.split(",")
-            if item.strip()
+            video_id.strip()
+            for video_id in video_ids.split(",")
+            if video_id.strip()
         ]
 
+        if not ids:
+            return {
+                "status": "error",
+                "tool": "compare_videos",
+                "error_message": "No video IDs provided.",
+            }
+
         return compare_videos(
-            video_ids=ids
+            video_ids=ids,
         )
 
     except Exception as e:
-        return {
-            "status": "error",
-            "tool": "compare_videos",
-            "error_type": type(e).__name__,
-            "error_message": str(e)
-        }
+        return tool_error(
+            "compare_videos",
+            e,
+        )
 
 
 # ============================================================
@@ -330,12 +386,12 @@ transport_security = TransportSecuritySettings(
 
     allowed_hosts=[
         "youtube-mcp-server-fiuu.onrender.com",
-        "youtube-mcp-server-fiuu.onrender.com:*"
+        "youtube-mcp-server-fiuu.onrender.com:*",
     ],
 
     allowed_origins=[
-        "https://youtube-mcp-server-fiuu.onrender.com"
-    ]
+        "https://youtube-mcp-server-fiuu.onrender.com",
+    ],
 )
 
 
@@ -346,7 +402,7 @@ transport_security = TransportSecuritySettings(
 mcp_http_app = mcp.streamable_http_app(
     streamable_http_path="/",
     stateless_http=True,
-    transport_security=transport_security
+    transport_security=transport_security,
 )
 
 
@@ -362,13 +418,13 @@ async def lifespan(app: FastAPI):
 
 
 # ============================================================
-# FASTAPI APP
+# FASTAPI
 # ============================================================
 
 app = FastAPI(
     title=APP_NAME,
     version=APP_VERSION,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 
@@ -384,7 +440,7 @@ async def home():
         "service": APP_NAME,
         "version": APP_VERSION,
         "mcp_endpoint": "/mcp",
-        "oauth_login": "/oauth/login"
+        "oauth_login": "/oauth/login",
     }
 
 
@@ -398,7 +454,7 @@ async def health():
     return {
         "status": "healthy",
         "service": APP_NAME,
-        "version": APP_VERSION
+        "version": APP_VERSION,
     }
 
 
@@ -412,7 +468,19 @@ async def version():
     return {
         "version": APP_VERSION,
         "oauth": "PKCE_FLOW_STORAGE",
-        "callback": "HTML_TOKEN_VERSION"
+        "callback": "HTML_TOKEN_VERSION",
+        "tool_names": [
+            "get_channel_info",
+            "get_my_videos",
+            "search_youtube",
+            "get_video_stats",
+            "get_channel_analytics",
+            "get_video_details",
+            "youtube_keyword_research",
+            "get_trending_videos",
+            "analyze_video_comments",
+            "compare_videos",
+        ],
     }
 
 
@@ -430,31 +498,29 @@ async def oauth_login():
 
         # Create OAuth flow
         flow = create_google_flow(
-            state=state
+            state=state,
         )
 
         # Generate authorization URL.
         #
-        # IMPORTANT:
-        # authorization_url() generates the PKCE
-        # code_verifier.
+        # This generates the PKCE code_verifier.
         #
         authorization_url, generated_state = (
             flow.authorization_url(
                 access_type="offline",
                 include_granted_scopes="true",
-                prompt="consent"
+                prompt="consent",
             )
         )
 
-        # Save the SAME flow object.
+        # Save original flow.
         #
-        # The callback will use this exact object,
-        # preserving the PKCE code_verifier.
+        # The callback MUST use this same object.
+        #
         oauth_flows[generated_state] = flow
 
         return RedirectResponse(
-            url=authorization_url
+            url=authorization_url,
         )
 
     except Exception as e:
@@ -465,8 +531,8 @@ async def oauth_login():
                 "status": "error",
                 "tool": "oauth_login",
                 "error_type": type(e).__name__,
-                "error_message": str(e)
-            }
+                "error_message": str(e),
+            },
         )
 
 
@@ -477,13 +543,13 @@ async def oauth_login():
 @app.get("/oauth/callback")
 async def oauth_callback(
     code: str,
-    state: str = None
+    state: str = None,
 ):
 
     try:
 
         # ----------------------------------------------------
-        # CHECK STATE
+        # STATE CHECK
         # ----------------------------------------------------
 
         if not state:
@@ -492,8 +558,8 @@ async def oauth_callback(
                 status_code=400,
                 content={
                     "status": "error",
-                    "message": "Missing OAuth state."
-                }
+                    "message": "Missing OAuth state.",
+                },
             )
 
         # ----------------------------------------------------
@@ -502,7 +568,7 @@ async def oauth_callback(
 
         flow = oauth_flows.pop(
             state,
-            None
+            None,
         )
 
         if flow is None:
@@ -513,32 +579,28 @@ async def oauth_callback(
                     "status": "error",
                     "message": (
                         "OAuth session expired or was not found. "
-                        "Please start authorization again from "
-                        "/oauth/login."
-                    )
-                }
+                        "Please start again from /oauth/login."
+                    ),
+                },
             )
 
         # ----------------------------------------------------
-        # EXCHANGE AUTHORIZATION CODE
+        # EXCHANGE CODE
+        #
+        # Same flow = PKCE verifier available
         # ----------------------------------------------------
 
         flow.fetch_token(
-            code=code
+            code=code,
         )
-
-        # ----------------------------------------------------
-        # GET CREDENTIALS
-        # ----------------------------------------------------
 
         credentials = flow.credentials
 
         access_token = credentials.token
-
         refresh_token = credentials.refresh_token
 
         # ----------------------------------------------------
-        # CHECK ACCESS TOKEN
+        # TOKEN CHECK
         # ----------------------------------------------------
 
         if not access_token:
@@ -547,13 +609,9 @@ async def oauth_callback(
                 status_code=400,
                 content={
                     "status": "error",
-                    "message": "Access token was not received."
-                }
+                    "message": "Access token was not received.",
+                },
             )
-
-        # ----------------------------------------------------
-        # CHECK REFRESH TOKEN
-        # ----------------------------------------------------
 
         if not refresh_token:
 
@@ -564,24 +622,19 @@ async def oauth_callback(
                     "message": (
                         "Refresh token was not received. "
                         "Please authorize again."
-                    )
-                }
+                    ),
+                },
             )
 
         # ----------------------------------------------------
         # TEMPORARY PROCESS STORAGE
         # ----------------------------------------------------
 
-        os.environ[
-            "YOUTUBE_ACCESS_TOKEN"
-        ] = access_token
-
-        os.environ[
-            "YOUTUBE_REFRESH_TOKEN"
-        ] = refresh_token
+        os.environ["YOUTUBE_ACCESS_TOKEN"] = access_token
+        os.environ["YOUTUBE_REFRESH_TOKEN"] = refresh_token
 
         # ----------------------------------------------------
-        # TEMPORARY REFRESH TOKEN PAGE
+        # TEMPORARY TOKEN PAGE
         # ----------------------------------------------------
 
         html = f"""
@@ -591,9 +644,7 @@ async def oauth_callback(
 
 <head>
 
-    <title>
-        YouTube Authorization Successful
-    </title>
+    <title>YouTube Authorization Successful</title>
 
     <meta
         name="viewport"
@@ -608,15 +659,10 @@ async def oauth_callback(
             margin: 50px auto;
             padding: 20px;
             line-height: 1.6;
-            background: #ffffff;
         }}
 
         h1 {{
             color: #16a34a;
-        }}
-
-        h2 {{
-            margin-top: 30px;
         }}
 
         .success {{
@@ -656,10 +702,6 @@ async def oauth_callback(
             font-size: 16px;
         }}
 
-        button:hover {{
-            opacity: 0.9;
-        }}
-
         .step {{
             margin-top: 30px;
         }}
@@ -668,44 +710,33 @@ async def oauth_callback(
 
 </head>
 
-
 <body>
 
     <h1>
         ✅ YouTube Authorization Successful
     </h1>
 
-
     <div class="success">
-
         Google OAuth authorization completed successfully.
-
     </div>
-
 
     <div class="warning">
 
-        <strong>
-            ⚠️ IMPORTANT
-        </strong>
+        <strong>⚠️ IMPORTANT</strong>
 
         <br><br>
 
         This refresh token is private.
-
-        Do NOT share it with anyone.
-
+        Do NOT share it.
         Do NOT upload it to GitHub.
 
     </div>
-
 
     <div class="step">
 
         <h2>
             Step 1 — Copy Refresh Token
         </h2>
-
 
         <div
             id="token"
@@ -714,15 +745,11 @@ async def oauth_callback(
             {refresh_token}
         </div>
 
-
-        <button
-            onclick="copyToken()"
-        >
+        <button onclick="copyToken()">
             Copy Refresh Token
         </button>
 
     </div>
-
 
     <div class="step">
 
@@ -730,43 +757,23 @@ async def oauth_callback(
             Step 2 — Add to Render
         </h2>
 
-
         <p>
-            Open your Render service.
+            Render → Your Service → Environment
         </p>
-
-
-        <p>
-            Go to:
-        </p>
-
-
-        <p>
-            <strong>
-                Environment → Add Environment Variable
-            </strong>
-        </p>
-
 
         <p>
             Key:
         </p>
 
-
         <div class="token">
-
             YOUTUBE_REFRESH_TOKEN
-
         </div>
 
-
         <p>
-            Value:
-            paste the refresh token copied above.
+            Value = your copied refresh token.
         </p>
 
     </div>
-
 
     <div class="step">
 
@@ -774,34 +781,12 @@ async def oauth_callback(
             Step 3 — Save & Redeploy
         </h2>
 
-
         <p>
-            Save the environment variable in Render.
-        </p>
-
-
-        <p>
-            Then redeploy the Render service.
+            Save the environment variable and redeploy
+            your Render service.
         </p>
 
     </div>
-
-
-    <div class="step">
-
-        <h2>
-            Step 4 — Security
-        </h2>
-
-
-        <p>
-            After you have saved the refresh token
-            in Render, remove this temporary
-            token-display code from the callback.
-        </p>
-
-    </div>
-
 
     <script>
 
@@ -812,20 +797,16 @@ async def oauth_callback(
                 .getElementById("token")
                 .innerText;
 
-
             navigator
                 .clipboard
                 .writeText(token);
 
-
             alert(
                 "Refresh token copied."
             );
-
         }}
 
     </script>
-
 
 </body>
 
@@ -833,7 +814,7 @@ async def oauth_callback(
 """
 
         return HTMLResponse(
-            content=html
+            content=html,
         )
 
     except Exception as e:
@@ -844,8 +825,8 @@ async def oauth_callback(
                 "status": "error",
                 "tool": "oauth_callback",
                 "error_type": type(e).__name__,
-                "error_message": str(e)
-            }
+                "error_message": str(e),
+            },
         )
 
 
@@ -855,5 +836,5 @@ async def oauth_callback(
 
 app.mount(
     "/mcp",
-    mcp_http_app
+    mcp_http_app,
 )
