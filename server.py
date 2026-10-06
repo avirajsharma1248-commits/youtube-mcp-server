@@ -1,6 +1,7 @@
 import os
 import secrets
 import contextlib
+from typing import Dict
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse
@@ -29,7 +30,7 @@ from youtube_service import (
 # ============================================================
 
 APP_NAME = "youtube-mcp-server"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 
 REDIRECT_URI = os.environ.get(
     "YOUTUBE_REDIRECT_URI",
@@ -48,6 +49,16 @@ mcp = MCPServer(
 
 
 # ============================================================
+# TEMPORARY OAUTH FLOW STORAGE
+#
+# This keeps the SAME OAuth flow between /oauth/login
+# and /oauth/callback so the PKCE code_verifier is preserved.
+# ============================================================
+
+oauth_flows: Dict[str, object] = {}
+
+
+# ============================================================
 # MCP TOOLS
 # ============================================================
 
@@ -58,6 +69,7 @@ def get_channel_info_tool():
     """
     try:
         return get_channel_info()
+
     except Exception as e:
         return {
             "status": "error",
@@ -69,7 +81,7 @@ def get_channel_info_tool():
 
 @mcp.tool()
 def get_my_videos_tool(
-    max_results: int = 20,
+    max_results: int = 20
 ):
     """
     Get videos from the authenticated YouTube channel.
@@ -81,6 +93,7 @@ def get_my_videos_tool(
         return get_my_videos(
             max_results=max_results
         )
+
     except Exception as e:
         return {
             "status": "error",
@@ -93,7 +106,7 @@ def get_my_videos_tool(
 @mcp.tool()
 def search_youtube_tool(
     query: str,
-    max_results: int = 10,
+    max_results: int = 10
 ):
     """
     Search YouTube videos.
@@ -107,6 +120,7 @@ def search_youtube_tool(
             query=query,
             max_results=max_results
         )
+
     except Exception as e:
         return {
             "status": "error",
@@ -118,7 +132,7 @@ def search_youtube_tool(
 
 @mcp.tool()
 def get_video_stats_tool(
-    video_id: str,
+    video_id: str
 ):
     """
     Get YouTube video statistics.
@@ -130,6 +144,7 @@ def get_video_stats_tool(
         return get_video_stats(
             video_id=video_id
         )
+
     except Exception as e:
         return {
             "status": "error",
@@ -142,7 +157,7 @@ def get_video_stats_tool(
 @mcp.tool()
 def get_channel_analytics_tool(
     start_date: str,
-    end_date: str,
+    end_date: str
 ):
     """
     Get YouTube channel analytics.
@@ -158,6 +173,7 @@ def get_channel_analytics_tool(
             start_date=start_date,
             end_date=end_date
         )
+
     except Exception as e:
         return {
             "status": "error",
@@ -169,7 +185,7 @@ def get_channel_analytics_tool(
 
 @mcp.tool()
 def get_video_details_tool(
-    video_id: str,
+    video_id: str
 ):
     """
     Get detailed information about a YouTube video.
@@ -181,6 +197,7 @@ def get_video_details_tool(
         return get_video_details(
             video_id=video_id
         )
+
     except Exception as e:
         return {
             "status": "error",
@@ -193,7 +210,7 @@ def get_video_details_tool(
 @mcp.tool()
 def youtube_keyword_research_tool(
     keyword: str,
-    max_results: int = 20,
+    max_results: int = 20
 ):
     """
     Research YouTube keywords and related videos.
@@ -207,6 +224,7 @@ def youtube_keyword_research_tool(
             keyword=keyword,
             max_results=max_results
         )
+
     except Exception as e:
         return {
             "status": "error",
@@ -219,13 +237,13 @@ def youtube_keyword_research_tool(
 @mcp.tool()
 def get_trending_videos_tool(
     region_code: str = "IN",
-    max_results: int = 20,
+    max_results: int = 20
 ):
     """
     Get currently trending YouTube videos.
 
     Args:
-        region_code: Two-letter country code, e.g. IN or US.
+        region_code: Two-letter country code.
         max_results: Number of results.
     """
     try:
@@ -233,6 +251,7 @@ def get_trending_videos_tool(
             region_code=region_code,
             max_results=max_results
         )
+
     except Exception as e:
         return {
             "status": "error",
@@ -245,20 +264,21 @@ def get_trending_videos_tool(
 @mcp.tool()
 def analyze_video_comments_tool(
     video_id: str,
-    max_results: int = 100,
+    max_results: int = 100
 ):
     """
     Analyze comments on a YouTube video.
 
     Args:
         video_id: YouTube video ID.
-        max_results: Maximum comments to analyze.
+        max_results: Maximum comments.
     """
     try:
         return analyze_video_comments(
             video_id=video_id,
             max_results=max_results
         )
+
     except Exception as e:
         return {
             "status": "error",
@@ -270,7 +290,7 @@ def analyze_video_comments_tool(
 
 @mcp.tool()
 def compare_videos_tool(
-    video_ids: str,
+    video_ids: str
 ):
     """
     Compare multiple YouTube videos.
@@ -278,9 +298,10 @@ def compare_videos_tool(
     Provide video IDs separated by commas.
 
     Example:
-    2jIGinRBkLM,VIDEO_ID_2,VIDEO_ID_3
+    video1,video2,video3
     """
     try:
+
         ids = [
             item.strip()
             for item in video_ids.split(",")
@@ -309,12 +330,12 @@ transport_security = TransportSecuritySettings(
 
     allowed_hosts=[
         "youtube-mcp-server-fiuu.onrender.com",
-        "youtube-mcp-server-fiuu.onrender.com:*",
+        "youtube-mcp-server-fiuu.onrender.com:*"
     ],
 
     allowed_origins=[
-        "https://youtube-mcp-server-fiuu.onrender.com",
-    ],
+        "https://youtube-mcp-server-fiuu.onrender.com"
+    ]
 )
 
 
@@ -325,7 +346,7 @@ transport_security = TransportSecuritySettings(
 mcp_http_app = mcp.streamable_http_app(
     streamable_http_path="/",
     stateless_http=True,
-    transport_security=transport_security,
+    transport_security=transport_security
 )
 
 
@@ -347,12 +368,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=APP_NAME,
     version=APP_VERSION,
-    lifespan=lifespan,
+    lifespan=lifespan
 )
 
 
 # ============================================================
-# BASIC HOME PAGE
+# HOME
 # ============================================================
 
 @app.get("/")
@@ -363,12 +384,12 @@ async def home():
         "service": APP_NAME,
         "version": APP_VERSION,
         "mcp_endpoint": "/mcp",
-        "oauth_login": "/oauth/login",
+        "oauth_login": "/oauth/login"
     }
 
 
 # ============================================================
-# HEALTH CHECK
+# HEALTH
 # ============================================================
 
 @app.get("/health")
@@ -377,7 +398,21 @@ async def health():
     return {
         "status": "healthy",
         "service": APP_NAME,
+        "version": APP_VERSION
+    }
+
+
+# ============================================================
+# VERSION
+# ============================================================
+
+@app.get("/version")
+async def version():
+
+    return {
         "version": APP_VERSION,
+        "oauth": "PKCE_FLOW_STORAGE",
+        "callback": "HTML_TOKEN_VERSION"
     }
 
 
@@ -390,19 +425,33 @@ async def oauth_login():
 
     try:
 
+        # Create unique state
         state = secrets.token_urlsafe(32)
 
+        # Create OAuth flow
         flow = create_google_flow(
             state=state
         )
 
+        # Generate authorization URL.
+        #
+        # IMPORTANT:
+        # authorization_url() generates the PKCE
+        # code_verifier.
+        #
         authorization_url, generated_state = (
             flow.authorization_url(
                 access_type="offline",
                 include_granted_scopes="true",
-                prompt="consent",
+                prompt="consent"
             )
         )
+
+        # Save the SAME flow object.
+        #
+        # The callback will use this exact object,
+        # preserving the PKCE code_verifier.
+        oauth_flows[generated_state] = flow
 
         return RedirectResponse(
             url=authorization_url
@@ -416,7 +465,7 @@ async def oauth_login():
                 "status": "error",
                 "tool": "oauth_login",
                 "error_type": type(e).__name__,
-                "error_message": str(e),
+                "error_message": str(e)
             }
         )
 
@@ -428,25 +477,79 @@ async def oauth_login():
 @app.get("/oauth/callback")
 async def oauth_callback(
     code: str,
-    state: str = None,
+    state: str = None
 ):
 
     try:
 
-        # Create OAuth flow
-        flow = create_google_flow(
-            state=state
+        # ----------------------------------------------------
+        # CHECK STATE
+        # ----------------------------------------------------
+
+        if not state:
+
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Missing OAuth state."
+                }
+            )
+
+        # ----------------------------------------------------
+        # GET ORIGINAL FLOW
+        # ----------------------------------------------------
+
+        flow = oauth_flows.pop(
+            state,
+            None
         )
 
-        # Exchange authorization code
+        if flow is None:
+
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": (
+                        "OAuth session expired or was not found. "
+                        "Please start authorization again from "
+                        "/oauth/login."
+                    )
+                }
+            )
+
+        # ----------------------------------------------------
+        # EXCHANGE AUTHORIZATION CODE
+        # ----------------------------------------------------
+
         flow.fetch_token(
             code=code
         )
 
+        # ----------------------------------------------------
+        # GET CREDENTIALS
+        # ----------------------------------------------------
+
         credentials = flow.credentials
 
         access_token = credentials.token
+
         refresh_token = credentials.refresh_token
+
+        # ----------------------------------------------------
+        # CHECK ACCESS TOKEN
+        # ----------------------------------------------------
+
+        if not access_token:
+
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Access token was not received."
+                }
+            )
 
         # ----------------------------------------------------
         # CHECK REFRESH TOKEN
@@ -460,9 +563,9 @@ async def oauth_callback(
                     "status": "error",
                     "message": (
                         "Refresh token was not received. "
-                        "Try OAuth authorization again."
-                    ),
-                },
+                        "Please authorize again."
+                    )
+                }
             )
 
         # ----------------------------------------------------
@@ -478,300 +581,256 @@ async def oauth_callback(
         ] = refresh_token
 
         # ----------------------------------------------------
-        # TEMPORARY TOKEN DISPLAY PAGE
-        #
-        # IMPORTANT:
-        # Remove this after copying the token to Render.
+        # TEMPORARY REFRESH TOKEN PAGE
         # ----------------------------------------------------
 
         html = f"""
-        <!DOCTYPE html>
+<!DOCTYPE html>
 
-        <html>
+<html>
 
-        <head>
+<head>
 
-            <title>
-                YouTube Authorization Successful
-            </title>
+    <title>
+        YouTube Authorization Successful
+    </title>
 
-            <meta
-                name="viewport"
-                content="width=device-width, initial-scale=1"
-            >
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1"
+    >
 
-            <style>
+    <style>
 
-                body {{
-                    font-family:
-                        Arial,
-                        sans-serif;
+        body {{
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            line-height: 1.6;
+            background: #ffffff;
+        }}
 
-                    max-width:
-                        900px;
+        h1 {{
+            color: #16a34a;
+        }}
 
-                    margin:
-                        50px auto;
+        h2 {{
+            margin-top: 30px;
+        }}
 
-                    padding:
-                        20px;
+        .success {{
+            background: #dcfce7;
+            border: 1px solid #86efac;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }}
 
-                    line-height:
-                        1.6;
+        .warning {{
+            background: #fff3cd;
+            border: 1px solid #ffe69c;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }}
 
-                    background:
-                        #ffffff;
-                }}
+        .token {{
+            display: block;
+            background: #f4f4f4;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 8px;
+            word-break: break-all;
+            margin: 10px 0;
+            font-family: monospace;
+        }}
 
-                h1 {{
-                    color:
-                        #16a34a;
-                }}
+        button {{
+            background: #111827;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+        }}
 
-                .warning {{
-                    background:
-                        #fff3cd;
+        button:hover {{
+            opacity: 0.9;
+        }}
 
-                    border:
-                        1px solid #ffe69c;
+        .step {{
+            margin-top: 30px;
+        }}
 
-                    padding:
-                        15px;
+    </style>
 
-                    border-radius:
-                        8px;
+</head>
 
-                    margin:
-                        20px 0;
-                }}
 
-                .token {{
-                    display:
-                        block;
+<body>
 
-                    background:
-                        #f4f4f4;
+    <h1>
+        ✅ YouTube Authorization Successful
+    </h1>
 
-                    border:
-                        1px solid #ddd;
 
-                    padding:
-                        15px;
+    <div class="success">
 
-                    border-radius:
-                        8px;
+        Google OAuth authorization completed successfully.
 
-                    word-break:
-                        break-all;
+    </div>
 
-                    margin:
-                        10px 0;
 
-                    font-family:
-                        monospace;
-                }}
+    <div class="warning">
 
-                button {{
-                    background:
-                        #111827;
+        <strong>
+            ⚠️ IMPORTANT
+        </strong>
 
-                    color:
-                        white;
+        <br><br>
 
-                    border:
-                        none;
+        This refresh token is private.
 
-                    padding:
-                        12px 20px;
+        Do NOT share it with anyone.
 
-                    border-radius:
-                        6px;
+        Do NOT upload it to GitHub.
 
-                    cursor:
-                        pointer;
+    </div>
 
-                    font-size:
-                        16px;
-                }}
 
-                button:hover {{
-                    opacity:
-                        0.9;
-                }}
+    <div class="step">
 
-                .step {{
-                    margin-top:
-                        30px;
-                }}
+        <h2>
+            Step 1 — Copy Refresh Token
+        </h2>
 
-                .success {{
-                    background:
-                        #dcfce7;
 
-                    border:
-                        1px solid #86efac;
+        <div
+            id="token"
+            class="token"
+        >
+            {refresh_token}
+        </div>
 
-                    padding:
-                        15px;
 
-                    border-radius:
-                        8px;
-                }}
+        <button
+            onclick="copyToken()"
+        >
+            Copy Refresh Token
+        </button>
 
-            </style>
+    </div>
 
-        </head>
 
-        <body>
+    <div class="step">
 
-            <h1>
-                ✅ YouTube Authorization Successful
-            </h1>
+        <h2>
+            Step 2 — Add to Render
+        </h2>
 
-            <div class="success">
 
-                Google OAuth authorization completed
-                successfully.
+        <p>
+            Open your Render service.
+        </p>
 
-            </div>
 
-            <div class="warning">
+        <p>
+            Go to:
+        </p>
 
-                <strong>
-                    ⚠️ IMPORTANT
-                </strong>
 
-                <br>
+        <p>
+            <strong>
+                Environment → Add Environment Variable
+            </strong>
+        </p>
 
-                This refresh token is private.
 
-                Do NOT share it with anyone.
+        <p>
+            Key:
+        </p>
 
-                Do NOT post it on GitHub.
 
-            </div>
+        <div class="token">
 
+            YOUTUBE_REFRESH_TOKEN
 
-            <div class="step">
+        </div>
 
-                <h2>
-                    Step 1 — Copy Refresh Token
-                </h2>
 
-                <div
-                    id="token"
-                    class="token"
-                >
-                    {refresh_token}
-                </div>
+        <p>
+            Value:
+            paste the refresh token copied above.
+        </p>
 
-                <button
-                    onclick="copyToken()"
-                >
-                    Copy Refresh Token
-                </button>
+    </div>
 
-            </div>
 
+    <div class="step">
 
-            <div class="step">
+        <h2>
+            Step 3 — Save & Redeploy
+        </h2>
 
-                <h2>
-                    Step 2 — Add to Render
-                </h2>
 
-                <p>
-                    Open your Render service.
-                </p>
+        <p>
+            Save the environment variable in Render.
+        </p>
 
-                <p>
-                    Go to:
-                </p>
 
-                <p>
-                    <strong>
-                        Environment
-                        →
-                        Add Environment Variable
-                    </strong>
-                </p>
+        <p>
+            Then redeploy the Render service.
+        </p>
 
-                <p>
-                    Key:
-                </p>
+    </div>
 
-                <div class="token">
 
-                    YOUTUBE_REFRESH_TOKEN
+    <div class="step">
 
-                </div>
+        <h2>
+            Step 4 — Security
+        </h2>
 
-                <p>
-                    Value:
-                    paste the refresh token copied above.
-                </p>
 
-            </div>
+        <p>
+            After you have saved the refresh token
+            in Render, remove this temporary
+            token-display code from the callback.
+        </p>
 
+    </div>
 
-            <div class="step">
 
-                <h2>
-                    Step 3 — Save & Redeploy
-                </h2>
+    <script>
 
-                <p>
-                    Save the Environment Variable
-                    in Render.
-                </p>
+        function copyToken() {{
 
-                <p>
-                    Then redeploy your service.
-                </p>
+            const token =
+                document
+                .getElementById("token")
+                .innerText;
 
-            </div>
 
+            navigator
+                .clipboard
+                .writeText(token);
 
-            <div class="step">
 
-                <h2>
-                    Step 4 — Important
-                </h2>
+            alert(
+                "Refresh token copied."
+            );
 
-                <p>
-                    After the token has been added
-                    to Render, remove the temporary
-                    token-display code from this
-                    callback.
-                </p>
+        }}
 
-            </div>
+    </script>
 
 
-            <script>
+</body>
 
-                function copyToken() {{
-
-                    const token =
-                        document
-                        .getElementById("token")
-                        .innerText;
-
-                    navigator
-                        .clipboard
-                        .writeText(token);
-
-                    alert(
-                        "Refresh token copied."
-                    );
-                }}
-
-            </script>
-
-        </body>
-
-        </html>
-        """
+</html>
+"""
 
         return HTMLResponse(
             content=html
@@ -781,13 +840,12 @@ async def oauth_callback(
 
         return JSONResponse(
             status_code=500,
-
             content={
                 "status": "error",
                 "tool": "oauth_callback",
                 "error_type": type(e).__name__,
-                "error_message": str(e),
-            },
+                "error_message": str(e)
+            }
         )
 
 
