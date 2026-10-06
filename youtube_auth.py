@@ -40,22 +40,18 @@ def create_google_flow(state=None):
         )
 
     client_config = {
-
         "web": {
-
             "client_id": client_id,
-
             "client_secret": client_secret,
-
-            "auth_uri":
-                "https://accounts.google.com/o/oauth2/auth",
-
-            "token_uri":
-                "https://oauth2.googleapis.com/token",
-
+            "auth_uri": (
+                "https://accounts.google.com/o/oauth2/auth"
+            ),
+            "token_uri": (
+                "https://oauth2.googleapis.com/token"
+            ),
             "redirect_uris": [
                 redirect_uri
-            ]
+            ],
         }
     }
 
@@ -63,7 +59,7 @@ def create_google_flow(state=None):
         client_config,
         scopes=SCOPES,
         state=state,
-        redirect_uri=redirect_uri
+        redirect_uri=redirect_uri,
     )
 
     return flow
