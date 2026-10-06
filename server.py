@@ -1,449 +1,121 @@
-import os
-import secrets
-import contextlib
-
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse, JSONResponse
-
-from mcp.server.mcpserver import MCPServer
-from mcp.server.transport_security import (
-    TransportSecuritySettings
-)
-
-from youtube_auth import create_google_flow
-
-from youtube_service import (
-    get_channel_info as youtube_get_channel_info,
-    get_my_videos as youtube_get_my_videos,
-    search_youtube as youtube_search_youtube,
-    get_video_stats as youtube_get_video_stats,
-    get_channel_analytics as youtube_get_channel_analytics,
-    get_video_details as youtube_get_video_details,
-    youtube_keyword_research as youtube_keyword_research_fn,
-    get_trending_videos as youtube_get_trending_videos,
-    analyze_video_comments as youtube_analyze_video_comments,
-    compare_videos as youtube_compare_videos,
-)
-
-
-# =========================================================
-# MCP SERVER
-# =========================================================
-
-mcp = MCPServer(
-    "youtube-mcp-server",
-    version="1.2.0"
-)
-
-
-# =========================================================
-# BASIC TOOLS
-# =========================================================
-
-@mcp.tool()
-def get_channel_info() -> dict:
-    """
-    Get YouTube channel information.
-    """
-
-    return youtube_get_channel_info()
-
-
-@mcp.tool()
-def get_my_videos(
-    max_results: int = 10
-) -> dict:
-    """
-    Get latest videos from authenticated channel.
-    """
-
-    return youtube_get_my_videos(
-        max_results=max_results
-    )
-
-
-@mcp.tool()
-def search_youtube(
-    query: str,
-    max_results: int = 10
-) -> dict:
-    """
-    Search YouTube videos.
-    """
-
-    return youtube_search_youtube(
-        query=query,
-        max_results=max_results
-    )
-
-
-@mcp.tool()
-def get_video_stats(
-    video_id: str
-) -> dict:
-    """
-    Get YouTube video statistics.
-    """
-
-    return youtube_get_video_stats(
-        video_id=video_id
-    )
-
-
-# =========================================================
-# CHANNEL ANALYTICS
-# =========================================================
-
-@mcp.tool()
-def get_channel_analytics(
-    start_date: str,
-    end_date: str
-) -> dict:
-    """
-    Get YouTube channel analytics.
-
-    Date format:
-    YYYY-MM-DD
-    """
-
-    return youtube_get_channel_analytics(
-        start_date=start_date,
-        end_date=end_date
-    )
-
-
-# =========================================================
-# VIDEO DETAILS
-# =========================================================
-
-@mcp.tool()
-def get_video_details(
-    video_id: str
-) -> dict:
-    """
-    Get complete video details.
-    """
-
-    return youtube_get_video_details(
-        video_id=video_id
-    )
-
-
-# =========================================================
-# KEYWORD RESEARCH
-# =========================================================
-
-@mcp.tool()
-def youtube_keyword_research(
-    query: str,
-    max_results: int = 20
-) -> dict:
-    """
-    Research YouTube results for a keyword.
-    """
-
-    return youtube_keyword_research_fn(
-        query=query,
-        max_results=max_results
-    )
-
-
-# =========================================================
-# TRENDING
-# =========================================================
-
-@mcp.tool()
-def get_trending_videos(
-    region_code: str = "IN",
-    category_id: str = None,
-    max_results: int = 10
-) -> dict:
-    """
-    Get popular YouTube videos for a region.
-    """
-
-    return youtube_get_trending_videos(
-        region_code=region_code,
-        category_id=category_id,
-        max_results=max_results
-    )
-
-
-# =========================================================
-# COMMENTS
-# =========================================================
-
-@mcp.tool()
-def analyze_video_comments(
-    video_id: str,
-    max_results: int = 100
-) -> dict:
-    """
-    Analyze comments from a YouTube video.
-    """
-
-    return youtube_analyze_video_comments(
-        video_id=video_id,
-        max_results=max_results
-    )
-
-
-# =========================================================
-# VIDEO COMPARISON
-# =========================================================
-
-@mcp.tool()
-def compare_videos(
-    video_ids: str
-) -> dict:
-    """
-    Compare multiple YouTube videos.
-
-    Example:
-    abc123,xyz456,test789
-    """
-
-    return youtube_compare_videos(
-        video_ids=video_ids
-    )
-
-
-# =========================================================
-# OAUTH SESSION STORAGE
-# =========================================================
-
-oauth_sessions = {}
-
-
-# =========================================================
-# TRANSPORT SECURITY
-# =========================================================
-
-transport_security = TransportSecuritySettings(
-    enable_dns_rebinding_protection=True,
-
-    allowed_hosts=[
-        "youtube-mcp-server-fiuu.onrender.com",
-        "youtube-mcp-server-fiuu.onrender.com:*"
-    ],
-
-    allowed_origins=[
-        "https://youtube-mcp-server-fiuu.onrender.com"
-    ]
-)
-
-
-# =========================================================
-# MCP HTTP APP
-# =========================================================
-
-mcp_http_app = mcp.streamable_http_app(
-    streamable_http_path="/",
-    stateless_http=True,
-    transport_security=transport_security
-)
-
-
-# =========================================================
-# LIFESPAN
-# =========================================================
-
-@contextlib.asynccontextmanager
-async def lifespan(app: FastAPI):
-
-    async with mcp.session_manager.run():
-        yield
-
-
-# =========================================================
-# FASTAPI APP
-# =========================================================
-
-app = FastAPI(
-    title="YouTube MCP Server",
-    version="1.2.0",
-    lifespan=lifespan
-)
-
-
-# =========================================================
-# HOME
-# =========================================================
-
-@app.get("/")
-def home():
-
-    return {
-        "status": "online",
-
-        "service": "YouTube MCP Server",
-
-        "version": "1.2.0",
-
-        "mcp_endpoint": "/mcp",
-
-        "oauth_login": "/oauth/login",
-
-        "health": "/health",
-
-        "tools": [
-            "get_channel_info",
-            "get_my_videos",
-            "search_youtube",
-            "get_video_stats",
-            "get_channel_analytics",
-            "get_video_details",
-            "youtube_keyword_research",
-            "get_trending_videos",
-            "analyze_video_comments",
-            "compare_videos"
-        ]
-    }
-
-
-# =========================================================
-# HEALTH
-# =========================================================
-
-@app.get("/health")
-def health():
-
-    return {
-        "status": "healthy",
-        "service": "youtube-mcp-server"
-    }
-
-
-# =========================================================
-# OAUTH LOGIN
-# =========================================================
-
-@app.get("/oauth/login")
-def oauth_login():
-
-    state = secrets.token_urlsafe(
-        32
-    )
-
-    flow = create_google_flow(
-        state=state
-    )
-
-    authorization_url, _ = (
-        flow.authorization_url(
-            access_type="offline",
-            include_granted_scopes="true",
-            prompt="consent",
-            state=state
-        )
-    )
-
-    oauth_sessions[state] = flow
-
-    return RedirectResponse(
-        authorization_url
-    )
-
-
-# =========================================================
-# OAUTH CALLBACK
-# =========================================================
-
 @app.get("/oauth/callback")
-def oauth_callback(
-    code: str,
-    state: str
-):
-
-    flow = oauth_sessions.pop(
-        state,
-        None
-    )
-
-    if flow is None:
-
-        return JSONResponse(
-            {
-                "status": "error",
-                "message": (
-                    "OAuth session expired. "
-                    "Please start login again."
-                )
-            },
-            status_code=400
-        )
+async def oauth_callback(code: str, state: str = None):
 
     try:
+        flow = create_google_flow(state=state)
 
-        flow.fetch_token(
-            code=code
-        )
+        flow.fetch_token(code=code)
 
         credentials = flow.credentials
 
-        # ---------------------------------------------
-        # Runtime access token
-        # ---------------------------------------------
+        access_token = credentials.token
+        refresh_token = credentials.refresh_token
 
-        if credentials.token:
+        if not refresh_token:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Refresh token was not received. Try OAuth authorization again."
+                }
+            )
 
-            os.environ[
-                "YOUTUBE_ACCESS_TOKEN"
-            ] = credentials.token
+        # Temporary process storage
+        os.environ["YOUTUBE_ACCESS_TOKEN"] = access_token
+        os.environ["YOUTUBE_REFRESH_TOKEN"] = refresh_token
 
-        # ---------------------------------------------
-        # Runtime refresh token
-        # ---------------------------------------------
+        # IMPORTANT:
+        # Temporary page to copy the refresh token into Render Environment Variables.
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>YouTube Authorization</title>
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    max-width: 900px;
+                    margin: 50px auto;
+                    padding: 20px;
+                }}
+                .warning {{
+                    background: #fff3cd;
+                    padding: 15px;
+                    border-radius: 8px;
+                    margin-bottom: 20px;
+                }}
+                code {{
+                    display: block;
+                    background: #f4f4f4;
+                    padding: 15px;
+                    word-break: break-all;
+                    border-radius: 8px;
+                    margin: 10px 0;
+                }}
+                button {{
+                    padding: 12px 20px;
+                    cursor: pointer;
+                    font-size: 16px;
+                }}
+            </style>
+        </head>
 
-        if credentials.refresh_token:
+        <body>
 
-            os.environ[
-                "YOUTUBE_REFRESH_TOKEN"
-            ] = credentials.refresh_token
+        <h1>✅ YouTube Authorization Successful</h1>
 
-        return JSONResponse(
-            {
-                "status": "success",
+        <div class="warning">
+            <strong>IMPORTANT:</strong>
+            This refresh token is private. Do NOT share it with anyone.
+        </div>
 
-                "message": (
-                    "YouTube authorization successful"
-                ),
+        <h2>Step 1 — Copy this Refresh Token</h2>
 
-                "access_token_received": bool(
-                    credentials.token
-                ),
+        <code id="token">{refresh_token}</code>
 
-                "refresh_token_received": bool(
-                    credentials.refresh_token
-                ),
+        <button onclick="copyToken()">Copy Refresh Token</button>
 
-                "persistent_storage_required": True,
+        <h2>Step 2 — Add it to Render</h2>
 
-                "message_for_user": (
-                    "Add YOUTUBE_REFRESH_TOKEN "
-                    "to Render Environment Variables "
-                    "for persistent authorization."
-                )
-            }
-        )
+        <p>
+        Render → Your Service → Environment → Add Environment Variable
+        </p>
+
+        <code>
+        YOUTUBE_REFRESH_TOKEN
+        </code>
+
+        <p>
+        Value = the refresh token shown above
+        </p>
+
+        <h2>Step 3</h2>
+
+        <p>
+        After adding the variable to Render, redeploy the service.
+        </p>
+
+        <script>
+        function copyToken() {{
+            const token = document.getElementById("token").innerText;
+            navigator.clipboard.writeText(token);
+            alert("Refresh token copied.");
+        }}
+        </script>
+
+        </body>
+        </html>
+        """
+
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(content=html)
 
     except Exception as e:
-
         return JSONResponse(
-            {
+            status_code=500,
+            content={
                 "status": "error",
                 "error_type": type(e).__name__,
-                "message": str(e)
-            },
-            status_code=500
+                "error_message": str(e)
+            }
         )
-
-
-# =========================================================
-# MOUNT MCP
-# =========================================================
-
-app.mount(
-    "/mcp",
-    mcp_http_app
-)
