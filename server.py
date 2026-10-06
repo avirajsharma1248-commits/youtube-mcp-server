@@ -1,10 +1,11 @@
 import os
 import secrets
+import contextlib
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse, JSONResponse
 
-from mcp.server import MCPServer
+from mcp.server.mcpserver import MCPServer
 
 from youtube_auth import create_google_flow
 
@@ -14,23 +15,6 @@ from youtube_service import (
     search_youtube as youtube_search_youtube,
     get_video_stats as youtube_get_video_stats,
 )
-
-
-# =========================================================
-# FASTAPI APPLICATION
-# =========================================================
-
-app = FastAPI(
-    title="YouTube MCP Server",
-    version="1.0.0"
-)
-
-
-# =========================================================
-# TEMPORARY OAUTH SESSION STORAGE
-# =========================================================
-
-oauth_sessions = {}
 
 
 # =========================================================
@@ -52,7 +36,6 @@ def get_channel_info() -> dict:
     Get authenticated YouTube channel information
     and statistics.
     """
-
     return youtube_get_channel_info()
 
 
@@ -66,7 +49,6 @@ def get_my_videos(max_results: int = 10) -> dict:
     Get videos uploaded by the authenticated
     YouTube channel.
     """
-
     return youtube_get_my_videos(
         max_results=max_results
     )
@@ -84,7 +66,6 @@ def search_youtube(
     """
     Search YouTube videos using a keyword.
     """
-
     return youtube_search_youtube(
         query=query,
         max_results=max_results
@@ -103,10 +84,47 @@ def get_video_stats(
     Get YouTube video information,
     statistics and duration.
     """
-
     return youtube_get_video_stats(
         video_id=video_id
     )
+
+
+# =========================================================
+# OAUTH SESSION STORAGE
+# =========================================================
+
+oauth_sessions = {}
+
+
+# =========================================================
+# FASTAPI LIFESPAN
+# =========================================================
+#
+# IMPORTANT:
+# When MCP is mounted inside FastAPI, the mounted
+# application's lifespan does not automatically run.
+#
+# Therefore the parent FastAPI application must start
+# the MCP session manager.
+# =========================================================
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    async with mcp.session_manager.run():
+
+        yield
+
+
+# =========================================================
+# FASTAPI APPLICATION
+# =========================================================
+
+app = FastAPI(
+    title="YouTube MCP Server",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 
 # =========================================================
@@ -133,7 +151,7 @@ def home():
 
 
 # =========================================================
-# HEALTH CHECK
+# HEALTH
 # =========================================================
 
 @app.get("/health")
@@ -152,15 +170,12 @@ def health():
 @app.get("/oauth/login")
 def oauth_login():
 
-    # Generate OAuth state
     state = secrets.token_urlsafe(32)
 
-    # Create Google OAuth flow
     flow = create_google_flow(
         state=state
     )
 
-    # Generate authorization URL
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
@@ -168,11 +183,11 @@ def oauth_login():
         state=state
     )
 
-    # Save flow object.
-    # Important for PKCE/code_verifier.
+    # Save complete flow object.
+    # This is required so the PKCE code verifier
+    # survives until the callback.
     oauth_sessions[state] = flow
 
-    # Redirect user to Google
     return RedirectResponse(
         authorization_url
     )
@@ -188,7 +203,6 @@ def oauth_callback(
     state: str
 ):
 
-    # Get original OAuth flow
     flow = oauth_sessions.pop(
         state,
         None
@@ -210,7 +224,7 @@ def oauth_callback(
     try:
 
         # Exchange authorization code
-        # for access + refresh tokens
+        # for access + refresh tokens.
         flow.fetch_token(
             code=code
         )
@@ -221,11 +235,10 @@ def oauth_callback(
         # TEMPORARY TOKEN STORAGE
         # -------------------------------------------------
         #
-        # These are stored only in the current Render
-        # process. They are NOT written to GitHub.
+        # Tokens are kept in the current process only.
+        # They are NOT saved in GitHub.
         #
-        # For production, persistent token storage should
-        # be added later.
+        # Persistent token storage can be added later.
         # -------------------------------------------------
 
         if credentials.token:
@@ -265,21 +278,16 @@ def oauth_callback(
 
 
 # =========================================================
-# MCP STREAMABLE HTTP
+# MCP STREAMABLE HTTP APPLICATION
 # =========================================================
 #
-# IMPORTANT:
+# We mount this application at /mcp.
 #
-# Because the MCP application is mounted at /mcp,
-# its internal path must be "/".
+# Therefore the internal MCP path is "/".
 #
-# Otherwise /mcp + /mcp can result in:
+# Final public endpoint:
 #
-#     /mcp/mcp
-#
-# The desired public endpoint is:
-#
-#     /mcp
+# https://youtube-mcp-server-fiuu.onrender.com/mcp
 #
 # =========================================================
 
@@ -290,7 +298,7 @@ mcp_http_app = mcp.streamable_http_app(
 
 
 # =========================================================
-# MOUNT MCP AT /mcp
+# MOUNT MCP
 # =========================================================
 
 app.mount(
