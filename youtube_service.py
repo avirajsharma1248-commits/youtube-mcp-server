@@ -5,7 +5,12 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 
+# =========================================================
+# SCOPES
+# =========================================================
+
 YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
+
 YOUTUBE_ANALYTICS_SCOPE = (
     "https://www.googleapis.com/auth/yt-analytics.readonly"
 )
@@ -16,16 +21,17 @@ YOUTUBE_ANALYTICS_SCOPE = (
 # =========================================================
 
 def get_credentials():
+    """
+    Create Google credentials using the persistent refresh token.
 
-    access_token = os.getenv(
-        "YOUTUBE_ACCESS_TOKEN"
-    )
+    Access token is optional because Google can automatically
+    refresh it using the refresh token.
+    """
 
-    refresh_token = os.getenv(
-        "YOUTUBE_REFRESH_TOKEN"
-    )
+    access_token = os.getenv("YOUTUBE_ACCESS_TOKEN")
+    refresh_token = os.getenv("YOUTUBE_REFRESH_TOKEN")
 
-    if not access_token:
+    if not refresh_token:
         raise RuntimeError(
             "YouTube authorization required. "
             "Please visit /oauth/login."
@@ -35,15 +41,11 @@ def get_credentials():
         token=access_token,
         refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
-        client_id=os.getenv(
-            "GOOGLE_CLIENT_ID"
-        ),
-        client_secret=os.getenv(
-            "GOOGLE_CLIENT_SECRET"
-        ),
+        client_id=os.getenv("GOOGLE_CLIENT_ID"),
+        client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
         scopes=[
             YOUTUBE_SCOPE,
-            YOUTUBE_ANALYTICS_SCOPE
+            YOUTUBE_ANALYTICS_SCOPE,
         ],
     )
 
@@ -87,7 +89,13 @@ def get_analytics_service():
 def get_channel_analytics(
     start_date,
     end_date,
-    metrics="views,estimatedMinutesWatched,averageViewDuration,subscribersGained,subscribersLost"
+    metrics=(
+        "views,"
+        "estimatedMinutesWatched,"
+        "averageViewDuration,"
+        "subscribersGained,"
+        "subscribersLost"
+    )
 ):
 
     youtube = get_youtube_service()
@@ -774,6 +782,14 @@ def compare_videos(
             for x in video_ids.split(",")
             if x.strip()
         ]
+
+    if not video_ids:
+        return {
+            "status": "error",
+            "message": "No video IDs provided."
+        }
+
+    video_ids = video_ids[:50]
 
     youtube = get_youtube_service()
 
